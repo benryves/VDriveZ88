@@ -1,0 +1,75 @@
+lstoff
+
+if !__VDAP_DEF__
+define __VDAP_DEF__
+
+	; VDAP constants
+
+	; Command sets
+	defc VDAP_SCS  = $10 ; Short command set
+	defc VDAP_ECS  = $11 ; Extended command set
+	defc VDAP_IPA  = $90 ; Input numbers in ASCII
+	defc VDAP_IPH  = $91 ; Input numbers in HEX
+
+	; Directory operations
+	defc VDAP_DIR  = $01 ; Lists the current directory
+	defc VDAP_CD   = $02 ; Change directory
+	defc VDAP_DLD  = $05 ; Delete directory
+	defc VDAP_MKD  = $06 ; Make directory
+
+	; File operations
+	defc VDAP_RD   = $04 ; Read file
+	defc VDAP_RDF  = $0B ; Read data from file
+	defc VDAP_DLF  = $07 ; Delete file
+	defc VDAP_WRF  = $08 ; Write file data
+	defc VDAP_OPW  = $09 ; Open file for writing
+	defc VDAP_OPR  = $0E ; Open file for reading
+	defc VDAP_CLF  = $0A ; Close file
+	defc VDAP_REN  = $0C ; Rename file or directory
+	defc VDAP_FS   = $12 ; Free space (only for discs up to 4GB)
+	defc VDAP_FSE  = $93 ; Free space
+	defc VDAP_SEK  = $28 ; Seek in file
+
+	; UART monitor
+	defc VDAP_SBD  = $14 ; Set baud rate
+
+	; Power management commands
+	defc VDAP_SUD  = $15 ; Suspend disk when not in use
+	defc VDAP_WKD  = $16 ; Wake disk
+	defc VDAP_SUM  = $17 ; Suspend monitor and stop clocks
+
+	; Commands to unused I/O pins
+	defc VDAP_IOR  = $29 ; Read I/O port
+	defc VDAP_IOW  = $2A ; Write I/O port
+
+	; Printer class commands
+	defc VDAP_PGS  = $81 ; Get printer status
+	defc VDAP_PSR  = $82 ; Printer soft reset
+
+	; USB device commands
+	defc VDAP_DSD  = $83 ; Send data to USB device
+	defc VDAP_DRD  = $84 ; Read data from USB device
+	defc VDAP_QP1  = $2B ; Query device port 1 status
+	defc VDAP_QP2  = $2C ; Query device port 2 status
+	defc VDAP_QD   = $85 ; Query device
+	defc VDAP_SC   = $86 ; Set current device
+	defc VDAP_SF   = $87 ; Set device to be FTDI device
+
+	; VMSC commands
+	defc VDAP_VPF  = $1D ; Play an MP3 file
+	defc VDAP_VWR  = $1E ; Write to VS1003 command register
+	defc VDAP_VRD  = $1F ; Read from VS1003 command register
+	defc VDAP_VST  = $20 ; Stop playing current track
+	defc VDAP_V3A  = $21 ; Play all tracks with MP3 extension
+	defc VDAP_VSF  = $25 ; Skip to next track
+	defc VDAP_VSB  = $26 ; Skip to beginning of current track
+
+	; Debug commands
+	defc VDAP_SD   = $03 ; Sector dump
+	defc VDAP_SW   = $92 ; Sector write
+	defc VDAP_IDD  = $0F ; Identify disk drive
+	defc VDAP_IDDE = $94 ; Identify disk drive extended
+	defc VDAP_FWV  = $13 ; Get firmware versions
+	
+endif
+lston

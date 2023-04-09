@@ -1,0 +1,46 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Make Z88 application",
+			"windows": {
+				"command": ".\\makeapp.cmd"
+			},
+			"group": "build",
+			"problemMatcher": {
+				"owner": "mpm",
+				"pattern": [
+					{
+						"regexp": "^In\\s+file\\s+'(.+?)',.*?at\\s+line\\s+(\\d+),\\s*(.+)$",
+						"file": 1,
+						"line": 2,
+						"message": 3
+					}
+				]
+			}
+		},
+		{
+			"type": "shell",
+			"label": "Run Z88 application",
+			"windows": {
+				"command": ".\\runapp.cmd"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": {
+				"owner": "mpm",
+				"pattern": [
+					{
+						"regexp": "^In\\s+file\\s+'(.+?)',.*?at\\s+line\\s+(\\d+),\\s*(.+)$",
+						"file": 1,
+						"line": 2,
+						"message": 3
+					}
+				]
+			}
+		}
+	]
+}
