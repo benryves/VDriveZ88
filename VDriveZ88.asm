@@ -860,6 +860,15 @@ include "vdap.def"
 	jr c, sync_abort
 	jr nz, sync_abort
 	
+	; suspend the disc after file operations
+	ld a, VDAP_SUD
+	call send_command_byte
+	jr c, sync_abort
+	
+	call check_prompt
+	jr c, sync_abort
+	jr nz, sync_abort
+	
 	; check for the presence of a disc
 	ld a, CR
 	call send_cr
