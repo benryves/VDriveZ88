@@ -10,6 +10,12 @@ define __VDAP_DEF__
 	defc VDAP_ECS  = $11 ; Extended command set
 	defc VDAP_IPA  = $90 ; Input numbers in ASCII
 	defc VDAP_IPH  = $91 ; Input numbers in HEX
+	
+	; Disk commands
+	defc VDAP_IDD  = $0F ; Identify disk drive
+	defc VDAP_IDDE = $94 ; Identify disk drive extended
+	defc VDAP_DSN  = $2D ; Display disk serial number
+	defc VDAP_DVL  = $2E ; Display disk volume label
 
 	; Directory operations
 	defc VDAP_DIR  = $01 ; Lists the current directory
@@ -29,6 +35,7 @@ define __VDAP_DEF__
 	defc VDAP_FS   = $12 ; Free space (only for discs up to 4GB)
 	defc VDAP_FSE  = $93 ; Free space
 	defc VDAP_SEK  = $28 ; Seek in file
+	defc VDAP_DIRT = $2F ; List specified file and date and time of create, modify and file access
 
 	; UART monitor
 	defc VDAP_SBD  = $14 ; Set baud rate
@@ -61,15 +68,21 @@ define __VDAP_DEF__
 	defc VDAP_VRD  = $1F ; Read from VS1003 command register
 	defc VDAP_VST  = $20 ; Stop playing current track
 	defc VDAP_V3A  = $21 ; Play all tracks with MP3 extension
+	defc VDAP_VRA  = $8A ; Repeatedly play all MP3 files
+	defc VDAP_VRR  = $8F ; Repeatedly plays random MP3 files
 	defc VDAP_VSF  = $25 ; Skip to next track
 	defc VDAP_VSB  = $26 ; Skip to beginning of current track
+	defc VDAP_VSD  = $8E ; Skip forward one whole directory
+	defc VDAP_VP   = $8B ; Pause playback
+	defc VDAP_VF   = $8C ; Fast forward 5 seconds
+	defc VDAP_VB   = $8D ; Rewind 5 seconds
+	defc VDAP_VSV  = $88 ; Sets playback volume
 
 	; Debug commands
 	defc VDAP_SD   = $03 ; Sector dump
 	defc VDAP_SW   = $92 ; Sector write
-	defc VDAP_IDD  = $0F ; Identify disk drive
-	defc VDAP_IDDE = $94 ; Identify disk drive extended
 	defc VDAP_FWV  = $13 ; Get firmware versions
+	defc VDAP_FWU  = $95 ; Upgrade firmware from named file on disk
 	
 endif
 lston
