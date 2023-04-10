@@ -40,6 +40,7 @@ include "vdap.def"
 		dir_list        ds.w 2          ; pointer to first file in list
 		dir_count       ds.w 1          ; number of files in file list
 		dir_list_ptr    ds.w 2          ; pointer to current item in file list
+		dir_list_new    ds.w 2          ; pointer to new item in the file list
 		cursor_x        ds.b 1          ; cursor x
 		cursor_y        ds.b 1          ; cursor y
 		dir_offset      ds.w 1          ; offset into directory listing
@@ -1260,6 +1261,10 @@ include "vdap.def"
 	oz (OS_Mal)
 	
 	jp c, appl_exit ; out of memory
+	
+	; store the pointers away for safe keeping
+	ld (dir_list_new + 0), bc
+	ld (dir_list_new + 2), hl
 
 	; update bank binding
 	push bc
@@ -1268,20 +1273,19 @@ include "vdap.def"
 	
 	; bchl now points to allocated memory
 	
-	; zero memory
-	push hl
-	push bc
-	
+	; zero pointers
 	ld d, h
 	ld e, l
 	inc de
 	
 	ld (hl), 0
-	ld bc, 31
+	ld bc, 3
 	ldir
 	
-	pop bc
-	pop hl
+	; copy over the filename
+	ld hl, filename
+	ld bc, filename_length + 2
+	ldir
 	
 	; where in the linked list are we going to store the filename?
 	
@@ -1294,10 +1298,11 @@ include "vdap.def"
 	
 	; the first filename is easy, just put that at the head of the list
 	
+	ld bc, (dir_list_new + 0)
+	ld hl, (dir_list_new + 2)
+	
 	ld (dir_list + 0), bc
 	ld (dir_list + 2), hl
-	ld (dir_list_ptr + 0), bc
-	ld (dir_list_ptr + 2), hl
 	
 	jr dir_allocated_filename
 
@@ -1305,46 +1310,53 @@ include "vdap.def"
 	
 	; subsequent file names are a bit more awkward to store
 	
-	push hl
-	push bc
+	; we'll work through the linked list of known file names
+	; if our received filename is < the stored filename,
+	; we'll insert our received filename before it.
 	
-	ld bc, (dir_list_ptr + 0)
-	ld hl, (dir_list_ptr + 2)
+	; start from the head of the list
+	call dir_reset_index
+	
+	; compare
+	ld de, 4
+	add hl, de
+	ld de, filename
+	call str_cmp
+	
+;	jr nc, dir_not_before_head
+	
+	; we need to insert our new filename before the current head
+	
+	; update our new record to say the current head comes next
+	ld bc, (dir_list_new + 0)
+	ld hl, (dir_list_new + 2)
 	
 	oz (OS_Mpb)
 	
-	pop bc
-	ld (dir_list_ptr + 0), bc
+	ld bc, (dir_list + 0)
 	
 	ld (hl), c
 	inc hl
 	ld (hl), b
 	inc hl
 	
-	pop bc
-	ld (dir_list_ptr + 2), bc
-	
+	ld bc, (dir_list + 2)
 	ld (hl), c
 	inc hl
 	ld (hl), b
 	inc hl
 	
-	ld bc, (dir_list_ptr + 0)
-	ld hl, (dir_list_ptr + 2)
+	; now update the current head record to point at our new record
 	
-	oz (OZ_Mpb)
+	ld bc, (dir_list_new + 0)
+	ld hl, (dir_list_new + 2)
+	
+	ld (dir_list + 0), bc
+	ld (dir_list + 2), hl
+	
+;.dir_not_before_head
 
 .dir_allocated_filename
-	
-	; at this point, bchl points to allocated filename record
-	
-	ld bc, 4
-	add hl, bc
-	ex de, hl
-	
-	ld hl, filename
-	ld bc, filename_length + 2 ; including 'f'/'d' prefix and NUL
-	ldir
 	
 	; increment the count of received files
 	ld hl, (dir_count)
