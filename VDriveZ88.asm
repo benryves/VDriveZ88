@@ -176,39 +176,48 @@ include "vdap.def"
 
 .connecting_succeeded
 
-	; always navigate up to the root on startup for consistent path
-	ld a, (has_disk)
-	or a
-	jr z, connecting_no_disk
-	
-	ld hl, up_to_root
-	call change_directory
-	
-.connecting_no_disk
-
-	ld a, (has_disk)
-	or a
-	
 	ld hl, ok
-	jr nz, connecting_show_status
-	ld hl, no_disk
-	
-.connecting_show_status
 	oz (GN_Sop)
 	oz (Gn_Nln)
 	
-	; get directory listing
-	call dir
+	; path is already cleared, so just skip to the root directory
+	ld hl, up_to_root
+	call change_directory
 	
-	; start by clearing the screen
+	; clear the screen
 	ld hl, window_full
 	oz (GN_Sop)
+	
+	; skip the next block as we've already reset the path
+	jr dir_list_start
+	
+.dir_list_start_from_root
+
+	; clear the stored path
+	ld bc, (path + 0)
+	ld hl, (path + 2)
+	
+	oz (OS_Mpb)
+	ld (hl), 0
+
+	; initially start from the root directory
+	ld hl, up_to_root
+	call change_directory
 
 .dir_list_start
-	
+
 	; draw the title bar
 	ld hl, window_title_begin
 	oz (GN_Sop)
+	
+	ld a, (has_disk)
+	or a
+	jr nz, dir_list_title_path
+	
+	ld hl, no_disk
+	jr dir_list_output_title
+
+.dir_list_title_path
 	
 	ld hl, path_prefix
 	oz (GN_Sop)
@@ -217,6 +226,9 @@ include "vdap.def"
 	ld hl, (path + 2)
 	
 	oz (OS_Mpb)
+
+.dir_list_output_title
+
 	oz (GN_Sop)
 	
 	ld hl, window_title_end
@@ -235,16 +247,7 @@ include "vdap.def"
 	ld hl, (dir_count)
 	ld a, l
 	or h
-	jr nz, dir_list_has_files
-	
-	ld a, 2
-	ld (cursor_x), a
-	ld (cursor_y), a
-	call goto_cursor
-	
-	ld hl, no_disk
-	oz (GN_Sop)
-	jp key_loop
+	jp z, key_loop
 
 .dir_list_has_files
 
@@ -277,7 +280,17 @@ include "vdap.def"
 
 	; wait for key
 .key_loop
-	oz (OS_In)
+
+	call check_events
+	jr z, no_key_loop_events
+	
+	; there was an event
+	jp dir_list_start_from_root
+
+.no_key_loop_events
+
+	ld bc, 100
+	oz (OS_Tin)
 	jr c, key_error
 	
 	or a
@@ -292,7 +305,12 @@ include "vdap.def"
 	jr key_loop
 
 .key_error
-	; treat any errors as a request to quit
+	
+	; time-outs are OK
+	cp RC_TIME
+	jr z, key_loop
+	
+	; treat any other errors as a request to quit
 	jp appl_exit
 
 .extended_key
@@ -314,7 +332,10 @@ include "vdap.def"
 	cp IN_SUP
 	jp z, dir_up_a_level
 	
-	jp dir_list_render
+	cp IN_SDWN
+	jp z, dir_enter
+	
+	jr key_loop
 
 .dir_list_print_file
 	
@@ -1471,6 +1492,9 @@ include "vdap.def"
 .dir_end
 	
 	call dir_reset_index
+	
+	call flush_to_cr
+	
 	xor a
 	ret
 
@@ -1579,6 +1603,108 @@ include "vdap.def"
 	ret c
 	
 	jp dir
+
+
+; checks for incoming events from the drive
+; out: Fz = 1 if there are no events
+;      Fz = 0 if there is an event with A being the event code
+.check_events
+
+	; check if there's any incoming data
+	ld ix, (port_handle)
+	ld l, SI_ENQ
+	oz (OS_Si)
+	
+	ld a, d
+	or a
+	ret z
+	
+	; what is the incoming event?
+	ld hl, filename
+	ld b, filename_length
+	
+.check_events_get_event
+	push bc
+	ld bc, 1
+	call get_byte_timeout
+	pop bc
+	jr c, check_events_error
+	
+	cp CR
+	jr z, check_events_got_event
+	
+	ld (hl), a
+	inc hl
+	djnz check_events_get_event
+	
+	; if we fall off the end, the event is too long
+	jr check_events_error
+
+.check_events_got_event
+	ld (hl), 0
+	
+	; check each event string in turn
+	ld hl, event_strings
+	ld de, filename
+
+.check_events_check_next_event
+
+	; have we run out of event strings?
+	ld a, (hl)
+	or a
+	jr z, check_events_unidentified_event
+	
+	; check the string
+	call str_cmp
+	jr z, check_events_identified_event
+
+	; not a match, so skip over the NUL terminator
+.check_events_find_next_event
+	ld a, (hl)
+	inc hl
+	or a
+	jr nz, check_events_find_next_event
+	
+	; skip over the event ID, then try next string
+	inc hl
+	jr check_events_check_next_event
+
+
+.check_events_identified_event
+	; skip over the NUL terminator
+	ld a, (hl)
+	inc hl
+	or a
+	jr nz, check_events_identified_event
+	
+	; fetch event ID
+	ld a, (hl)
+	or a
+	ret
+
+.check_events_unidentified_event
+	ld a, EVENT_UNKNOWN
+	or a
+	ret
+
+.check_events_error
+	; pretend nothing happened
+	call flush_to_cr
+	xor a
+	ret
+
+	defc EVENT_NO_UPGRADE      = '#'
+	defc EVENT_NO_DISK         = '0'
+	defc EVENT_DEVICE_REMOVED  = '-'
+	defc EVENT_DEVICE_DETECTED = '+'
+	defc EVENT_UNKNOWN         = '?'
+
+.event_strings
+	defm "NU", 0,  EVENT_NO_UPGRADE
+	defm "ND", 0,  EVENT_NO_DISK
+	defm "DR2", 0, EVENT_DEVICE_REMOVED
+	defm "DD2", 0, EVENT_DEVICE_DETECTED
+	defb 0
 
 .window_full
 	defm SOH, "7#1", 32 + 1, 32 + 0, 32 + dir_item_width * dir_cols, 32 + 8, 128 + 1
