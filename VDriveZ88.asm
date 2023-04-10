@@ -278,6 +278,8 @@ include "vdap.def"
 	; wait for key
 .key_loop
 	oz (OS_In)
+	jr c, key_error
+	
 	or a
 	jr z, extended_key
 	
@@ -289,8 +291,13 @@ include "vdap.def"
 	
 	jr key_loop
 
+.key_error
+	; treat any errors as a request to quit
+	jp appl_exit
+
 .extended_key
 	oz (OS_In)
+	jr c, key_error
 	
 	cp IN_LFT
 	jr z, dir_move_left
