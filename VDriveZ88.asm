@@ -41,6 +41,7 @@ include "vdap.def"
 		dir_count       ds.w 1          ; number of files in file list
 		dir_list_ptr    ds.w 2          ; pointer to current item in file list
 		dir_list_new    ds.w 2          ; pointer to new item in the file list
+		dir_list_old    ds.w 2          ; pointer to old item in the file list
 		cursor_x        ds.b 1          ; cursor x
 		cursor_y        ds.b 1          ; cursor y
 		dir_offset      ds.w 1          ; offset into directory listing
@@ -1304,7 +1305,7 @@ include "vdap.def"
 	ld (dir_list + 0), bc
 	ld (dir_list + 2), hl
 	
-	jr dir_allocated_filename
+	jp dir_allocated_filename
 
 .dir_not_first_filename
 	
@@ -1323,10 +1324,12 @@ include "vdap.def"
 	ld de, filename
 	call str_cmp
 	
-;	jr nc, dir_not_before_head
+	; it's not before the current head, use the regular sort loop
+	jr nc, dir_sort_loop
 	
 	; we need to insert our new filename before the current head
-	
+
+.dir_before_head
 	; update our new record to say the current head comes next
 	ld bc, (dir_list_new + 0)
 	ld hl, (dir_list_new + 2)
@@ -1344,7 +1347,6 @@ include "vdap.def"
 	ld (hl), c
 	inc hl
 	ld (hl), b
-	inc hl
 	
 	; now update the current head record to point at our new record
 	
@@ -1354,7 +1356,91 @@ include "vdap.def"
 	ld (dir_list + 0), bc
 	ld (dir_list + 2), hl
 	
-;.dir_not_before_head
+	jr dir_allocated_filename
+	
+.dir_sort_loop
+	
+	; move to the next record
+	ld bc, (dir_list_ptr + 0)
+	ld hl, (dir_list_ptr + 2)
+	
+	ld (dir_list_old + 0), bc
+	ld (dir_list_old + 2), hl
+	
+	call dir_next
+
+	; if we've run out of records, append to the tail of the list
+	jr z, dir_after_tail
+	
+	; compare
+	ld de, 4
+	add hl, de
+	ld de, filename
+	call str_cmp
+	
+	; our new file doesn't go before the current one,
+	; so try the next item in the list
+	jr nc, dir_sort_loop
+
+.dir_before_current
+	
+	; we need to insert our new record between old and current
+	
+	; set old to point to our new record
+	ld bc, (dir_list_old + 0)
+	ld hl, (dir_list_old + 2)
+	
+	oz (OS_Mpb)
+	
+	ld bc, (dir_list_new + 0)
+	ld de, (dir_list_new + 2)
+	
+	ld (hl), c
+	inc hl
+	ld (hl), b
+	inc hl
+	ld (hl), e
+	inc hl
+	ld (hl), d
+	
+	ex de, hl
+	
+	; set new record to point to current
+	oz (OS_Mpb)
+	
+	ld bc, (dir_list_ptr + 0)
+	ld (hl), c
+	inc hl
+	ld (hl), b
+	inc hl
+	
+	ld bc, (dir_list_ptr + 2)
+	ld (hl), c
+	inc hl
+	ld (hl), b
+	
+	jr dir_allocated_filename
+
+.dir_after_tail
+
+	; if we get this far, we've reached the end of the list
+	; append our record to the end
+	
+	ld bc, (dir_list_ptr + 0)
+	ld hl, (dir_list_ptr + 2)
+	
+	oz (OS_Mpb)
+	
+	ld bc, (dir_list_new + 0)
+	ld (hl), c
+	inc hl
+	ld (hl), b
+	inc hl
+	
+	ld bc, (dir_list_new + 2)
+	ld (hl), c
+	inc hl
+	ld (hl), b
 
 .dir_allocated_filename
 	
@@ -1425,18 +1511,18 @@ include "vdap.def"
 	ld bc, (dir_list_ptr + 0)
 	ld hl, (dir_list_ptr + 2)
 	
-	push bc
 	oz (OS_Mpb)
-	pop bc
 
 	; find next item's pointer
 	ld c, (hl)
 	inc hl
 	ld b, (hl)
 	inc hl
+	
 	ld e, (hl)
 	inc hl
 	ld d, (hl)
+	inc hl
 	
 	ex de, hl
 	
