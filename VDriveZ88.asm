@@ -180,6 +180,8 @@ include "vdap.def"
 	oz (GN_Sop)
 	oz (Gn_Nln)
 	
+	call busy_start
+	
 	; path is already cleared, so just skip to the root directory
 	ld hl, up_to_root
 	call change_directory
@@ -187,6 +189,8 @@ include "vdap.def"
 	; clear the screen
 	ld hl, window_full
 	oz (GN_Sop)
+	
+	call busy_end
 	
 	; skip the next block as we've already reset the path
 	jr dir_list_start
@@ -199,10 +203,14 @@ include "vdap.def"
 	
 	oz (OS_Mpb)
 	ld (hl), 0
+	
+	call busy_start
 
 	; initially start from the root directory
 	ld hl, up_to_root
 	call change_directory
+
+	call busy_end
 
 .dir_list_start
 
@@ -237,6 +245,9 @@ include "vdap.def"
 	; switch to the directory window
 	ld hl, window_dir
 	oz (GN_Sop)
+	
+	; ensure it's ungreyed
+	call ungrey_window
 	
 	ld de, 0
 	ld (dir_offset), de
@@ -638,13 +649,25 @@ include "vdap.def"
 	ld bc, filename_length + 1
 	ldir
 	
+	call busy_start
+	call grey_window
+	
 	ld hl, filename + 1
 	call change_directory
+	
+	call busy_end
+	
 	jp dir_list_start
 
 .dir_up_a_level
+
+	call busy_start
+	call grey_window
+
 	ld hl, up_a_level
 	call change_directory
+	
+	call busy_end
 	
 	; now we need to pop the last '/' from the path
 	ld bc, (path + 0)
@@ -670,6 +693,9 @@ include "vdap.def"
 	jp dir_list_start
 
 .appl_exit
+
+	; make sure we're not still busy
+	call busy_end
 
 	; de-initialise the drive
 	call drive_deinit
@@ -1786,6 +1812,66 @@ include "vdap.def"
 	oz (OS_Out)
 	
 	ret
+
+.busy_start
+	push af
+	push hl
+	ld hl, busy_message_on
+	oz (GN_Sop)
+	pop hl
+	pop af
+	ret
+
+.busy_end
+	push af
+	push hl
+	ld hl, busy_message_off
+	oz (GN_Sop)
+	pop hl
+	pop af
+	ret
+
+.busy_message_on
+	defm SOH, "2H7"
+	defm SOH, "3@", 32+0, 32+7
+	defm SOH, "2-G"
+	defm "Busy..."
+	defm SOH, "2H1"
+	defb 0
+
+.busy_message_off
+	defm SOH, "2H7"
+	defm SOH, "3@", 32+0, 32+7
+	defm SOH, "2+G"
+	defm "       "
+	defm SOH, "2H1"
+	defb 0
+
+.grey_window
+	push af
+	push hl
+	ld hl, grey_window_on
+	oz (GN_Sop)
+	pop hl
+	pop af
+	ret
+
+.ungrey_window
+	push af
+	push hl
+	ld hl, grey_window_off
+	oz (GN_Sop)
+	pop hl
+	pop af
+	ret
+
+.grey_window_on
+	defm SOH, "2G+"
+	defb 0
+
+.grey_window_off
+	defm SOH, "2G-"
+	defb 0
 
 .connecting
 	defm "Connecting to drive...", 0
