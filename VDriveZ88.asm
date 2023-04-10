@@ -1252,27 +1252,58 @@ include "vdap.def"
 	
 .filename_not_dir
 	
-	; allocate memory for the file name
-	ld hl, (dir_count)
-	ld a, l
-	or h
+	; allocate memory to store the filename
+	
+	xor a
+	ld ix, (memory_pool)
+	ld bc, 32
+	oz (OS_Mal)
+	
+	jp c, appl_exit ; out of memory
+
+	; update bank binding
+	push bc
+	oz (OS_Mpb)
+	pop bc
+	
+	; bchl now points to allocated memory
+	
+	; zero memory
+	push hl
+	push bc
+	
+	ld d, h
+	ld e, l
+	inc de
+	
+	ld (hl), 0
+	ld bc, 31
+	ldir
+	
+	pop bc
+	pop hl
+	
+	; where in the linked list are we going to store the filename?
+	
+	ld de, (dir_count)
+	ld a, e
+	or d
 	jr nz, dir_not_first_filename
 
 .dir_first_filename
 	
-	; first file name is easier to allocate
-	call allocate_filename
+	; the first filename is easy, just put that at the head of the list
 	
 	ld (dir_list + 0), bc
 	ld (dir_list + 2), hl
 	ld (dir_list_ptr + 0), bc
 	ld (dir_list_ptr + 2), hl
+	
 	jr dir_allocated_filename
 
 .dir_not_first_filename
 	
 	; subsequent file names are a bit more awkward to store
-	call allocate_filename
 	
 	push hl
 	push bc
@@ -1412,38 +1443,6 @@ include "vdap.def"
 	oz (OS_Mpb)
 	pop bc
 	
-	ret
-
-.allocate_filename
-	
-	xor a
-	ld ix, (memory_pool)
-	ld bc, 32
-	oz (OS_Mal)
-	
-	jp c, appl_exit ; out of memory
-
-	; update bank binding
-	push bc
-	oz (OS_Mpb)
-	pop bc
-	
-	; bchl now points to allocated memory
-	
-	; zero memory
-	push hl
-	push bc
-	
-	ld d, h
-	ld e, l
-	inc de
-	
-	ld (hl), 0
-	ld bc, 31
-	ldir
-	
-	pop bc
-	pop hl
 	ret
 
 .change_directory
