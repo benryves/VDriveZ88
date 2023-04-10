@@ -1158,6 +1158,11 @@ include "vdap.def"
 	
 	; store the filename
 	ld hl, filename
+	
+	; default assumption is that it's a file rather than a directory
+	ld (hl), 'f'
+	inc hl
+	
 	ld b, filename_length ; maximum length (just in case)
 
 .dir_filename_loop
@@ -1184,17 +1189,68 @@ include "vdap.def"
 	; append NUL terminator
 	ld (hl), 0
 	
-	; is it a special directory?
-	; if so, skip it in the listing
+	; is it a file or a directory?
+	ld hl, filename + 1
+	
+	; look for the space
+.filename_is_dir_loop
+	ld a, (hl)
+	inc hl
+	or a
+	jr z, filename_not_dir
+	
+	cp ' '
+	jr z, filename_possibly_dir
+	jr filename_is_dir_loop
+
+.filename_possibly_dir
+
+	ld a, (hl)
+	inc hl
+	cp 'D'
+	jr nz, filename_not_dir
+	
+	ld a, (hl)
+	inc hl
+	cp 'I'
+	jr nz, filename_not_dir
+	
+	ld a, (hl)
+	inc hl
+	cp 'R'
+	jr nz, filename_not_dir
+	
+	ld a, (hl)
+	or a
+	jr nz, filename_not_dir
+	
+	; at this point, the filename is definitely a directory
+	
+	; trim the last four characters (" DIR")
+	ld de, -4
+	add hl, de
+	ld (hl), 0
+	
+	; mark the filename as a directory
 	ld hl, filename
+	ld (hl), 'd'
+	inc hl
 	
-	ld de, special_directory_current
-	call str_cmp
-	jr z, dir_loop
+	; is the filename all '.'?
+
+.check_dot_dir_loop
+	ld a, (hl)
+	inc hl
 	
-	ld de, special_directory_parent
-	call str_cmp
-	jr z, dir_loop
+	; if we've reached the end of the filename
+	; then it's all '.'!
+	or a
+	jp z, dir_loop
+	
+	cp '.'
+	jr z, check_dot_dir_loop
+	
+.filename_not_dir
 	
 	; allocate memory for the file name
 	ld hl, (dir_count)
@@ -1256,24 +1312,7 @@ include "vdap.def"
 	ex de, hl
 	
 	ld hl, filename
-	call filename_is_dir
-	
-	ld a, 'f'
-	jr c, dir_found_file
-	
-	; remove " DIR" from end of filename
-	ld bc, -4
-	add hl, bc
-	ld (hl), 0
-	
-	ld a, 'd'
-
-.dir_found_file
-	ld (de), a
-	inc de
-	
-	ld hl, filename
-	ld bc, filename_length + 1 ; including NUL
+	ld bc, filename_length + 2 ; including 'f'/'d' prefix and NUL
 	ldir
 	
 	; increment the count of received files
@@ -1453,48 +1492,6 @@ include "vdap.def"
 	defm SOH, "2JC"
 	defb 0
 
-.filename_is_dir
-	ld hl, filename
-	
-	; look for the space
-.filename_is_dir_loop
-	ld a, (hl)
-	inc hl
-	or a
-	jr z, filename_not_dir
-	
-	cp ' '
-	jr z, filename_possibly_dir
-	jr filename_is_dir_loop
-
-.filename_possibly_dir
-
-	ld a, (hl)
-	inc hl
-	cp 'D'
-	jr nz, filename_not_dir
-	
-	ld a, (hl)
-	inc hl
-	cp 'I'
-	jr nz, filename_not_dir
-	
-	ld a, (hl)
-	inc hl
-	cp 'R'
-	jr nz, filename_not_dir
-	
-	ld a, (hl)
-	or a
-	ret z
-	
-	; fall-through to filename_not_dir
-
-.filename_not_dir
-	scf
-	ret
-
-
 .goto_selected_file
 
 	ld hl, (dir_selected)
@@ -1584,12 +1581,6 @@ include "vdap.def"
 
 .up_to_root
 	defm "/", 0
-
-.special_directory_current
-	defm ". DIR", 0
-
-.special_directory_parent
-	defm ".. DIR", 0
 
 .path_prefix
 	defm "D:/", 0
