@@ -870,10 +870,9 @@ include "vdap.def"
 	ld (data_transferred + 0), hl
 	ld (data_transferred + 2), hl
 
-	xor a
-	ld (cursor_x), a
-	ld (cursor_y), a
-	call goto_cursor
+	; we'll want to be able to cancel transfers with the escape key
+	ld a, SC_ENA
+	oz (OS_Esc)
 
 .copy_file_loop
 	
@@ -906,6 +905,18 @@ include "vdap.def"
 	
 	; calculate %ge
 	
+	ld hl, (file_size + 0)
+	ld de, (file_size + 2)
+	
+	ld a, h
+	or l
+	or d
+	or e
+	
+	ld hl, 100
+	
+	jr z, copy_file_is_empty
+	
 	ld hl, (data_transferred + 2)
 	ld de, (file_size + 2)
 	exx
@@ -929,7 +940,9 @@ include "vdap.def"
 	push hl
 	exx
 	pop hl
-	
+
+.copy_file_is_empty
+
 	ld (oz_date_time + 0), hl
 	ld hl, 0
 	ld (oz_date_time + 2), hl
@@ -1014,11 +1027,11 @@ include "vdap.def"
 	ld hl, 0
 	
 	oz (OS_Mv)
-	jr c, copy_file_block_error
+	jr c, copy_file_block_move_error
 	
 	call check_prompt
-	jr c, copy_file_block_error
-	jr nz, copy_file_block_error
+	jr c, copy_file_block_drive_error
+	jr nz, copy_file_block_drive_error
 	
 	ld bc, (file_buffer + 0)
 	ld hl, (file_buffer + 2)
@@ -1032,9 +1045,12 @@ include "vdap.def"
 	jr nc, copy_file_block_written
 	
 	push af
+	; acknowledge escape
+	ld a, SC_ACK
+	oz (OS_Esc)
 	call drive_close_file
 	pop af
-	jr copy_file_error
+	jr copy_file_block_move_error
 	
 .copy_file_block_written
 	
@@ -1055,14 +1071,24 @@ include "vdap.def"
 	call drive_close_file	
 	jr copy_file_free
 
-.copy_file_block_error
+.copy_file_block_drive_error
 	push af
 	call drive_close_file
 	pop af
 	jr copy_file_drive_error
 
+.copy_file_block_move_error
+	push af
+	; acknowledge escape
+	ld a, SC_ACK
+	oz (OS_Esc)
+	call drive_close_file
+	pop af
+	jr copy_file_error
+
 .drive_close_file
 	; close the file on the drive
+	ld ix, (port_handle)
 	call flush_to_cr
 	ld a, VDAP_CLF
 	ld hl, filename + 1
@@ -1085,6 +1111,10 @@ include "vdap.def"
 
 .copy_file_free
 
+	; disable escape detection
+	ld a, SC_DIS
+	oz (OS_Esc)
+
 	; no longer busy
 	call busy_end
 
@@ -1099,12 +1129,12 @@ include "vdap.def"
 	
 	oz (GN_Cl)
 
+.copy_file_handle_closed
+	
 	; close the dialog
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	
-.copy_file_handle_closed
-
 	; free the file buffer
 	ld bc, (file_buffer + 0)
 	ld hl, (file_buffer + 2)
