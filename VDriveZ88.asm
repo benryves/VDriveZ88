@@ -1288,7 +1288,7 @@ include "vdap.def"
 
 .sync	
 	ld ix, (port_handle)
-	ld b, 8
+	ld b, 4
 .sync_attempt_loop
 	push bc
 	call sync_attempt
@@ -1372,15 +1372,6 @@ include "vdap.def"
 	
 	; switch to binary (hex) mode
 	ld a, VDAP_IPH
-	call send_command_byte
-	jr c, sync_abort
-	
-	call check_prompt
-	jr c, sync_abort
-	jr nz, sync_abort
-	
-	; suspend the disc after file operations
-	ld a, VDAP_SUD
 	call send_command_byte
 	jr c, sync_abort
 	
@@ -2321,6 +2312,7 @@ include "vdap.def"
 	xor a
 	ret
 
+	defc EVENT_NONE            = NUL
 	defc EVENT_NO_UPGRADE      = '#'
 	defc EVENT_NO_DISK         = '0'
 	defc EVENT_DEVICE_REMOVED  = '-'
@@ -2332,6 +2324,7 @@ include "vdap.def"
 	defm "ND", 0,  EVENT_NO_DISK
 	defm "DR2", 0, EVENT_DEVICE_REMOVED
 	defm "DD2", 0, EVENT_DEVICE_DETECTED
+	defm ">", 0,   EVENT_NONE
 	defb 0
 
 .window_full
