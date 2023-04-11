@@ -8,6 +8,9 @@ include "syspar.def"
 include "fileio.def"
 include "error.def"
 include "memory.def"
+include "integer.def"
+include "time.def"
+include "fpp.def"
 
 include "vdap.def"
 
@@ -27,28 +30,44 @@ include "vdap.def"
 
 ; Safe workspace variables
 
-	defc unsafe_ws = 128
+	defc unsafe_ws = 138
 	defc safe_ws = 0
 	
 	defc ram_vars = $1FFE - unsafe_ws
 	
 	defvars ram_vars {
-		port_handle     ds.w 1          ; serial port handle
-		filename        ds.b 32         ; buffer for filenames
-		has_disk        ds.b 1          ; whether the drive has a disk in it or not
-		memory_pool     ds.w 1          ; memory allocation pool
-		dir_list        ds.w 2          ; pointer to first file in list
-		dir_count       ds.w 1          ; number of files in file list
-		dir_list_ptr    ds.w 2          ; pointer to current item in file list
-		dir_list_new    ds.w 2          ; pointer to new item in the file list
-		dir_list_old    ds.w 2          ; pointer to old item in the file list
-		cursor_x        ds.b 1          ; cursor x
-		cursor_y        ds.b 1          ; cursor y
-		dir_offset      ds.w 1          ; offset into directory listing
-		dir_working     ds.w 1          ; working file index
-		dir_selected    ds.w 1          ; selected file index
-		path            ds.w 2          ; pointer to storage for full file path
+		screen_handle    ds.w 1          ; screen handle
+		port_handle      ds.w 1          ; serial port handle
+		file_handle      ds.w 1          ; file handle
+		filename         ds.b 32         ; buffer for filenames
+		has_disk         ds.b 1          ; whether the drive has a disk in it or not
+		memory_pool      ds.w 1          ; memory allocation pool
+		dir_list         ds.w 2          ; pointer to first file in list
+		dir_count        ds.w 1          ; number of files in file list
+		dir_list_ptr     ds.w 2          ; pointer to current item in file list
+		dir_list_new     ds.w 2          ; pointer to new item in the file list
+		dir_list_old     ds.w 2          ; pointer to old item in the file list
+		cursor_x         ds.b 1          ; cursor x
+		cursor_y         ds.b 1          ; cursor y
+		dir_offset       ds.w 1          ; offset into directory listing
+		dir_working      ds.w 1          ; working file index
+		dir_selected     ds.w 1          ; selected file index
+		path             ds.w 2          ; pointer to storage for full file path
+		file_size        ds.b 4          ; size of a file
+		file_created     ds.b 4          ; file creation date+time
+		file_modified    ds.b 4          ; file modification date+time
+		oz_date_time     ds.b 6          ; OZ-format date+time
+		local_filename   ds.b 32         ; local filename for copy operations
+		file_buffer      ds.w 2          ; allocated buffer to handle file transfers
+		data_transferred ds.b 4          ; general "data remaining" counter
+		data_remaining   ds.b 4          ; general "data remaining" counter
+		chunk_size       ds.w 2          ; when transferring data to/from the drive
+		ram_vars_end     ds.b 1
 	}
+	
+	if ram_vars_end - ram_vars > unsafe_ws
+		error "Too many variables"
+	endif
 
 ; Application bank and origin
 
@@ -140,6 +159,18 @@ include "vdap.def"
 	
 	oz (OS_Mpb)
 	ld (hl), 0
+	
+	; open the screen from its name
+	ld bc, filename_length
+	ld hl, screen_name
+	ld de, filename
+	ld a, OP_UP
+	oz (GN_Opf)
+	
+	jp c, appl_exit
+	
+	; store the port handle
+	ld (screen_handle), ix
 	
 	; initialise the full window for output
 	ld hl, window_full
@@ -249,10 +280,6 @@ include "vdap.def"
 	; ensure it's ungreyed
 	call ungrey_window
 	
-	ld de, 0
-	ld (dir_offset), de
-	ld (dir_selected), de
-
 .dir_list_render
 
 	ld hl, (dir_count)
@@ -612,11 +639,18 @@ include "vdap.def"
 	ld bc, filename_length + 2
 	ldir
 	
-	; we can only act on directories
+	; are we acting on a file or a directory?
 	ld a, (filename)
-	cp 'd'
-	jp nz, key_loop
 	
+	cp 'd'
+	jr z, dir_enter_dir
+	
+	cp 'f'
+	jr z, dir_enter_file
+	
+	jp key_loop
+
+.dir_enter_dir
 	
 	ld bc, (path + 0)
 	ld hl, (path + 2)
@@ -658,6 +692,442 @@ include "vdap.def"
 	call busy_end
 	
 	jp dir_list_start
+
+.dir_enter_file
+	ld hl, filename + 1
+	call get_file_info
+	
+	jp c, key_loop
+	jp nz, key_loop
+	
+	ld hl, window_dialog_begin
+	oz (GN_Sop)
+	ld hl, filename + 1
+	oz (GN_Sop)
+	ld hl, window_dialog_end
+	oz (GN_Sop)
+	
+	ld a, 1
+	ld (cursor_x), a
+	ld (cursor_y), a
+	
+	call goto_cursor
+	
+	; show file size
+	
+	ld hl, prop_size
+	oz (GN_Sop)
+	
+	ld hl, file_size
+	ld de, 0
+	ld ix, (screen_handle)
+	xor a
+	
+	oz (GN_Pdn)
+	oz (Gn_Nln)
+	
+	; show file date modified
+	
+	ld a, ' '
+	oz (OS_Out)
+	ld hl, prop_modified
+	oz (GN_Sop)
+	
+	ld hl, file_modified
+	call date_time_vdap_to_oz
+	
+	ld hl, oz_date_time
+	oz (GN_Sdo)
+	oz (Gn_Nln)
+	
+	; show file date created
+	
+	ld a, ' '
+	oz (OS_Out)
+	ld hl, prop_created
+	oz (GN_Sop)
+	
+	ld hl, file_created
+	call date_time_vdap_to_oz
+	
+	ld hl, oz_date_time
+	oz (GN_Sdo)
+	oz (Gn_Nln)
+	
+	; prompt for file name to save as
+	oz (Gn_Nln)
+	ld a, ' '
+	oz (OS_Out)
+	ld hl, save_as_file
+	oz (GN_Sop)
+	
+	call enable_cursor
+	
+	ld hl, filename + 1
+	ld de, local_filename
+	ld bc, 32
+	
+	push de
+	push hl
+	ldir
+	pop hl
+	pop de
+	
+	ld c, -1
+.find_original_filename_length
+	ld a, (hl)
+	inc hl
+	inc c
+	or a
+	jr nz, find_original_filename_length
+	
+	ld a, 1
+	ld b, 21
+	
+	oz (GN_Sip)
+	
+	call disable_cursor
+	
+	jp c, dir_enter_file_prompt_error
+	cp ESC
+	ld a, RC_ESC
+	jp z, dir_enter_file_prompt_error
+	
+	; ... copy the file ...
+	ld ix, (memory_pool)
+	
+	xor a
+	ld bc, 256
+	oz (OS_Mal)
+	
+	jr nc, copy_file_allocated
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	; couldn't allocate scratch buffer for file transfers
+	oz (GN_Err)
+	jp dir_list_start
+
+.copy_file_allocated
+
+	ld (file_buffer + 0), bc
+	ld (file_buffer + 2), hl
+	
+	push bc
+	oz (OS_Mpb)
+	pop bc
+	
+	; open the file for output
+	ex de, hl
+	
+	ld bc, 255
+	ld hl, 0
+	ld (file_handle), hl
+	ld hl, local_filename
+	ld a, OP_OUT
+	oz (GN_Opf)
+	jp c, copy_file_error
+	
+	ld (file_handle), ix
+	
+	; try to set the extent of the file
+	ld a, FA_EXT
+	ld hl, file_size
+	oz (OS_Fwm)
+	jp c, copy_file_error
+	
+	; we're about to be very busy...
+	call busy_start
+	
+	; ...but we're still in window #2
+	ld hl, window_dialog_select
+	oz (GN_Sop)
+	
+	; check the drive is still available
+	call sync
+	jp c, copy_file_drive_error
+	jp nz, copy_file_drive_error
+	
+	; open the file for reading
+	ld a, VDAP_OPR
+	ld hl, filename + 1
+	call send_command_string
+	jp c, copy_file_drive_error
+	
+	call check_prompt
+	jp c, copy_file_drive_error
+	jp nz, copy_file_drive_error
+	
+	; we can start copying now!
+	
+	ld hl, (file_size + 0)
+	ld de, (file_size + 2)
+	ld (data_remaining + 0), hl
+	ld (data_remaining + 2), de
+	
+	ld hl, 0
+	ld (data_transferred + 0), hl
+	ld (data_transferred + 2), hl
+
+	xor a
+	ld (cursor_x), a
+	ld (cursor_y), a
+	call goto_cursor
+
+.copy_file_loop
+	
+	; show progress
+	ld a, 17
+	ld (cursor_x), a
+	ld a, 1
+	ld (cursor_y), a
+	call goto_cursor
+	
+	ld ix, (screen_handle)
+	
+	ld de, 0
+	ld hl, data_transferred
+	xor a
+	oz (GN_Pdn)
+	
+	ld a, '/'
+	oz (OS_Out)
+	
+	ld de, 0
+	ld hl, file_size
+	xor a
+	oz (GN_Pdn)
+	
+	ld a, ' '
+	oz (OS_Out)
+	ld a, '('
+	oz (OS_Out)
+	
+	; calculate %ge
+	
+	ld hl, (data_transferred + 2)
+	ld de, (file_size + 2)
+	exx
+	ld hl, (data_transferred + 0)
+	ld de, (file_size + 0)
+	exx
+	ld bc, 0
+	
+	fpp (FP_DIV)
+	
+	ld de, 0
+	exx
+	ld de, 100
+	exx
+	ld b, 0
+	
+	fpp (FP_MUL)
+	fpp (FP_FIX)
+	
+	exx
+	push hl
+	exx
+	pop hl
+	
+	ld (oz_date_time + 0), hl
+	ld hl, 0
+	ld (oz_date_time + 2), hl
+	
+	ld de, 0
+	ld hl, oz_date_time
+	ld ix, (screen_handle)
+	xor a
+	oz (GN_Pdn)
+	
+	ld a, '%'
+	oz (OS_Out)
+	ld a, ')'
+	oz (OS_Out)
+
+	; how much data do we need to pull in?
+	ld hl, (data_remaining + 0)
+	ld de, (data_remaining + 2)
+	
+	; is it 0?
+	ld a, h
+	or l
+	or d
+	or e
+	jp z, copy_file_done
+	
+	; is it >=256 bytes?
+	ld a, d
+	or e
+	jr nz, copy_file_gte_256
+	
+	ld de, 256
+	or a
+	sbc hl, de
+	jr nc, copy_file_gte_256
+
+.copy_file_lt_256
+	
+	; we're under 256 bytes
+	ld bc, (data_remaining + 0)
+	ld (chunk_size), bc
+	
+	ld bc, 0
+	ld (data_remaining + 0), bc
+	jr copy_file_got_chunk_size
+
+.copy_file_gte_256
+	
+	; we have >= 256 bytes to go, so cap at 256
+	ld bc, 256
+	ld (chunk_size), bc
+	
+	or a
+	
+	ld hl, (data_remaining + 0)
+	sbc hl, bc
+	ld (data_remaining + 0), hl
+	
+	ld bc, 0
+	ld hl, (data_remaining + 2)
+	sbc hl, bc
+	ld (data_remaining + 2), hl
+
+.copy_file_got_chunk_size
+
+	; request data from the file
+	ld ix, (port_handle)
+	ld de, 0
+	ld hl, (chunk_size)
+	push hl
+	ld a, VDAP_RDF
+	call send_command_dword
+	
+	; get the buffer ready
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
+	
+	pop bc
+	ld ix, (port_handle)
+	ex de, hl
+	ld hl, 0
+	
+	oz (OS_Mv)
+	jr c, copy_file_block_error
+	
+	call check_prompt
+	jr c, copy_file_block_error
+	jr nz, copy_file_block_error
+	
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
+	
+	ld ix, (file_handle)
+	ld bc, (chunk_size)
+	ld de, 0
+	
+	oz (OS_Mv)
+	jr nc, copy_file_block_written
+	
+	push af
+	call drive_close_file
+	pop af
+	jr copy_file_error
+	
+.copy_file_block_written
+	
+	; increment the data transferred counter
+	ld hl, (data_transferred + 0)
+	ld de, (chunk_size)
+	add hl, de
+	ld (data_transferred + 0), hl
+	ld de, 0
+	ld hl, (data_transferred + 2)
+	adc hl, de
+	ld (data_transferred + 2), hl
+	
+	jp copy_file_loop
+
+.copy_file_done
+
+	call drive_close_file	
+	jr copy_file_free
+
+.copy_file_block_error
+	push af
+	call drive_close_file
+	pop af
+	jr copy_file_drive_error
+
+.drive_close_file
+	; close the file on the drive
+	call flush_to_cr
+	ld a, VDAP_CLF
+	ld hl, filename + 1
+	call send_command_string
+	call check_prompt
+	jp flush_to_cr
+
+.copy_file_drive_error
+	ld a, RC_TIME
+	jr c, copy_file_error
+.copy_file_fail_error
+	ld a, RC_FAIL
+.copy_file_error
+	
+	push af
+	call busy_end
+	pop af
+	
+	oz (GN_Err)
+
+.copy_file_free
+
+	; no longer busy
+	call busy_end
+
+	; do we need to close the file handle?
+	ld hl, (file_handle)
+	ld a, h
+	or l
+	jr z, copy_file_handle_closed
+	
+	push hl
+	pop ix
+	
+	oz (GN_Cl)
+
+	; close the dialog
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+.copy_file_handle_closed
+
+	; free the file buffer
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	
+	ld ix, (memory_pool)
+	ld a, b
+	ld bc, 256
+	oz (OS_Mfr)
+	
+	jp dir_list_start
+
+.dir_enter_file_prompt_error
+
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	cp RC_DRAW
+	jp z, dir_enter_file
+	
+	cp RC_ESC
+	jp z, dir_list_start
+	
+	jp appl_exit
 
 .dir_up_a_level
 
@@ -763,8 +1233,8 @@ include "vdap.def"
 	pop bc
 	djnz drive_init_loop
 	
-	; open the serial port from its handle
-	ld b, 0
+	; open the serial port from its name
+	ld bc, filename_length
 	ld hl, port_name
 	ld de, filename
 	ld a, OP_UP
@@ -810,10 +1280,14 @@ include "vdap.def"
 	oz (GN_Cl)
 	ret
 
+.screen_name
+	defm ":SCR.0", 0
+
 .port_name
 	defm ":COM.0", 0
 
-.sync
+.sync	
+	ld ix, (port_handle)
 	ld b, 8
 .sync_attempt_loop
 	push bc
@@ -825,13 +1299,11 @@ include "vdap.def"
 	ret
 
 .sync_attempt
-	
-	ld ix, (port_handle)
 
 	; flush receive buffer
 	ld l, SI_FRX
 	oz (OS_Si)
-
+	
 .sync_flush_input
 	ld bc, 1
 	call get_byte_timeout
@@ -942,15 +1414,11 @@ include "vdap.def"
 ;      hl = pointer to string argument to send (NUL or CR terminated)
 ; out: Fc = 0 on success, Fc = 1 on timeout
 .send_command_string
-	push hl
 	call send_byte
-	pop hl
 	ret c
 	
 	ld a, ' '		
-	push hl
 	call send_byte
-	pop hl
 	ret c
 
 .send_command_string_loop
@@ -962,11 +1430,40 @@ include "vdap.def"
 	jr z, send_cr
 	
 	inc hl
-	push hl
 	call send_byte
-	pop hl
 	ret c
 	jr send_command_string_loop
+
+; send a command dword
+; in:  a = command to send
+;      dehl = dword argument to send
+; out: Fc = 0 on success, Fc = 1 on timeout
+.send_command_dword
+	call send_byte
+	ret c
+	
+	ld a, ' '		
+	call send_byte
+	ret c
+	
+	ld a, d
+	call send_byte
+	ret c
+	
+	ld a, e
+	call send_byte
+	ret c
+	
+	ld a, h
+	call send_byte
+	ret c
+	
+	ld a, l
+	call send_byte
+	ret c
+	
+	ld a, CR
+	jp send_byte
 
 ; gets and checks a byte from the serial port
 ; in:  a = byte to check
@@ -1094,37 +1591,14 @@ include "vdap.def"
 .send_byte_timeout
 	oz (OS_Pbt)
 	ret
-	
-	; send_byte debug
-	push af
-	ld a, '>'
-	oz (OS_Out)
-	pop af
-	push af
-	call print_hex_byte
-	pop af
-	
-	oz (OS_Pbt)
-	ret
 
 .get_byte
 	ld bc, port_timeout
 .get_byte_timeout
 	oz (OS_Gbt)
 	ret
-	
-	; get_byte debug
-	ret c
-	push af
-	ld a, '<'
-	oz (OS_Out)
-	pop af
-	push af
-	call print_hex_byte
-	pop af
-	ret
 
-
+; frees memory allocated for directory listing operations
 .dir_free
 	
 	; reset the file list count
@@ -1183,6 +1657,7 @@ include "vdap.def"
 	
 	ret
 
+; gets the current directory listing
 .dir
 	
 	; free any previously-used memory
@@ -1525,11 +2000,13 @@ include "vdap.def"
 	ret
 
 
-	
+; resets the directory listing index to the first item
 .dir_reset_index
 	ld de, 0
 	; fall-through to dir_set_index
 	
+; sets the directory listing index to a specific value
+; in:  de = desired index
 .dir_set_index
 	
 	; start from the front of the list
@@ -1572,6 +2049,8 @@ include "vdap.def"
 	
 	jr dir_set_index_loop
 
+; advances the directory listing pointer to the next item
+; out: Fz = 1 if we're at the end of the list
 .dir_next
 	
 	ld bc, (dir_list_ptr + 0)
@@ -1609,6 +2088,8 @@ include "vdap.def"
 	
 	ret
 
+; changes the current directory and fetches a new directory listing
+; in:  hl = pointer to directory name
 .change_directory
 	
 	push hl
@@ -1618,6 +2099,10 @@ include "vdap.def"
 	
 	ret c
 	ret nz
+	
+	ld de, 0
+	ld (dir_offset), de
+	ld (dir_selected), de
 
 	; only change directory if we have a disk
 	ld a, (has_disk)
@@ -1630,6 +2115,123 @@ include "vdap.def"
 	
 	jp dir
 
+
+; gets information about a file
+; in:  hl = pointer to filename
+.get_file_info
+
+	push hl
+	
+	; clear the file size and modification fields
+	ld hl, file_size
+	ld de, file_size + 1
+	ld bc, 11
+	ld (hl), 0
+	ldir
+	
+	call sync
+	pop hl
+	
+	ret c
+	ret nz
+	
+	; get the file size
+	
+	ld a, VDAP_DIR
+	push hl
+	call send_command_string
+	pop hl
+	
+	; now we should get the original filename followed by a space
+.get_file_info_size_space
+	call get_byte
+	ret c
+	cp ' '
+	jr nz, get_file_info_size_space
+	
+	; next four bytes are the file size
+	ld de, file_size
+	ld b, 4
+
+.get_file_info_size_loop
+	push bc
+	call get_byte
+	pop bc
+	ret c
+	ld (de), a
+	inc de
+	djnz get_file_info_size_loop
+	
+	ld a, CR
+	call check_byte
+	ret c
+	jp nz, flush_to_cr
+	
+	call check_prompt
+	ret c
+	jp nz, flush_to_cr
+	
+	; flush any extra CR
+	call flush_to_cr
+	
+	; get the file dates
+	
+	ld a, VDAP_DIRT
+	push hl
+	call send_command_string
+	pop hl
+		
+	; now we should get the original filename followed by a space
+.get_file_info_date_space
+	call get_byte
+	ret c
+	cp ' '
+	jr nz, get_file_info_date_space
+	
+	; next four bytes are the file creation date
+	ld de, file_created
+	ld b, 4
+
+.get_file_info_created_loop
+	push bc
+	call get_byte
+	pop bc
+	ret c
+	ld (de), a
+	inc de
+	djnz get_file_info_created_loop
+	
+	; next two bytes are the file access date
+	call get_byte
+	ret c
+	call get_byte
+	ret c
+	
+	; next four bytes are the file modification date
+	ld de, file_modified
+	ld b, 4
+
+.get_file_info_modified_loop
+	push bc
+	call get_byte
+	pop bc
+	ret c
+	ld (de), a
+	inc de
+	djnz get_file_info_modified_loop
+	
+	ld a, CR
+	call check_byte
+	ret c
+	jp nz, flush_to_cr
+	
+	call check_prompt
+	ret c
+	jp nz, flush_to_cr
+	
+	call flush_to_cr
+	xor a
+	ret
 
 ; checks for incoming events from the drive
 ; out: Fz = 1 if there are no events
@@ -1754,7 +2356,36 @@ include "vdap.def"
 
 .window_title_end
 	defm SOH, "4-TUR"
+	defm SOH, "2JN"
+	defb 0
+
+.window_dialog_begin
+	defm SOH, "7#1", 32 + 0, 32 + 0, 32 + dir_item_width * dir_cols + 2, 32 + 8, 128
+	defm SOH, "2G+"
+	defm SOH, "7#2", 32 + 24, 32 + 0, 32 + 38, 32 + 1, 128 + 1 + 2
+	defm SOH, "2C2"
+	defm SOH, "4+TUR"
 	defm SOH, "2JC"
+	defm FF
+	defm SOH, "3@", 32 + 0, 32 + 0
+	defb 0
+
+.window_dialog_end
+	defm SOH, "4-TUR"
+	defm SOH, "2JN"
+	defm SOH, "7#2", 32 + 24, 32 + 1, 32 + 38, 32 + 7, 128 + 1
+	defm SOH, "2C2"
+	defm SOH, "3-SC"
+	defb 0
+
+.window_dialog_select
+	defm SOH, "2H2"
+	defb 0
+
+.window_dialog_close
+	defm SOH, "7#1", 32 + 0, 32 + 0, 32 + dir_item_width * dir_cols + 2, 32 + 8, 128
+	defm SOH, "2H1"
+	defm SOH, "2G-"
 	defb 0
 
 .goto_selected_file
@@ -1873,6 +2504,30 @@ include "vdap.def"
 	defm SOH, "2G-"
 	defb 0
 
+.enable_cursor
+	push af
+	push hl
+	ld hl, cursor_on
+	oz (GN_Sop)
+	pop hl
+	pop af
+	ret
+
+.disable_cursor
+	push af
+	push hl
+	ld hl, cursor_off
+	oz (GN_Sop)
+	pop hl
+	pop af
+	ret
+
+.cursor_on
+	defm SOH, "2+C", 0
+
+.cursor_off
+	defm SOH, "2-C", 0
+
 .connecting
 	defm "Connecting to drive...", 0
 
@@ -1910,6 +2565,16 @@ include "vdap.def"
 .path_prefix
 	defm "D:/", 0
 
+.prop_size
+	defm "Size (bytes)  : ", 0
+.prop_modified
+	defm "Date modified : ", 0
+.prop_created
+	defm "Date created  : ", 0
+
+.save_as_file
+	defm "Save as file  : ", 0
+
 .str_cmp
 	push hl
 	push de
@@ -1928,3 +2593,126 @@ include "vdap.def"
 	inc hl
 	inc de
 	jr str_cmp_loop
+
+; convert a date and time from the VDAP format to the OZ format
+; in:  hl = pointer to VDAP date-time to convert
+; out: oz_date_time
+.date_time_vdap_to_oz
+	
+	push ix
+	
+	push hl
+	pop ix
+
+	; start with the time
+	
+	; this is a 16-bit value, split like this:
+	; HHHHHMMM MMMSSSSS
+	; (seconds are halved)
+	
+	; set HL to seconds
+	ld a, (ix + 0)
+	and $1F
+	add a, a
+	ld l, a
+	ld h, 0
+	push hl
+	
+	; fetch minutes
+	
+	ld a, (ix + 1)
+	and $07
+	ld d, a
+	ld e, (ix + 0)
+	
+	ld b, 5
+.minute_shift
+	srl d
+	rr e
+	djnz minute_shift
+	
+	; de = minutes, multiply by 60 to get seconds
+	ld hl, 60
+	
+	oz (GN_M16)
+	
+	pop de
+	add hl, de
+	push hl
+	
+	; fetch hours
+	ld e, (ix + 1)
+	
+	srl e
+	srl e
+	srl e
+	
+	ld hl, 3600
+	
+	ld bc, 0
+	ld d, b
+	
+	; BHL = 3600
+	; CDE = <hours>
+	
+	oz (GN_M24)
+	
+	; BHL = seconds in hours
+	
+	pop de
+	add hl, de
+	
+	jr nc, added_seconds_in_hours
+	inc b
+.added_seconds_in_hours
+
+	; we now have seconds in day in BHL
+	
+	; multiply by 100 to get centiseconds
+	ld c, 0
+	ld de, 100
+	oz (GN_M24)
+	
+	ld (oz_date_time + 0), hl
+	ld a, b
+	ld (oz_date_time + 2), a
+	
+	; now convert the date
+	
+	; this is a 16-bit value, split like this:
+	; YYYYYYYM MMMDDDDD
+	; (years are offset from 1980)
+	
+	ld a, (ix + 2)
+	and $1F
+	ld c, a
+	
+	ld a, (ix + 3)
+	and $01
+	ld b, a
+	
+	ld a, (ix + 2)
+	
+	add a, a
+	rl b
+	add a, a
+	rl b
+	add a, a
+	rl b
+	
+	ld e, (ix + 3)
+	srl e
+	ld d, 0
+	
+	ld hl, 1980
+	add hl, de
+	
+	ex de, hl
+	
+	oz (GN_Dei)
+
+	ld (oz_date_time + 3), bc
+	ld (oz_date_time + 5), a
+
+	pop ix
+	ret
