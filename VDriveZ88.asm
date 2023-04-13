@@ -140,7 +140,7 @@ include "vdap.def"
 	ld a, MM_S1
 	ld bc, 0
 	oz (OS_Mop)
-    jr nc, opened_pool
+	jr nc, opened_pool
 	
 	; quit with error message
 	oz (OS_Bye)
@@ -700,13 +700,21 @@ include "vdap.def"
 	jp c, key_loop
 	jp nz, key_loop
 	
+	; prepare the local filename
+	ld hl, filename + 1
+	ld de, local_filename
+	ld bc, 32
+	ldir
+	
 	ld hl, window_dialog_begin
 	oz (GN_Sop)
 	ld hl, filename + 1
 	oz (GN_Sop)
 	ld hl, window_dialog_end
 	oz (GN_Sop)
-	
+
+.dir_copy_file_show_info
+
 	ld a, 1
 	ld (cursor_x), a
 	ld (cursor_y), a
@@ -763,16 +771,7 @@ include "vdap.def"
 	
 	call enable_cursor
 	
-	ld hl, filename + 1
-	ld de, local_filename
-	ld bc, 32
-	
-	push de
-	push hl
-	ldir
-	pop hl
-	pop de
-	
+	ld hl, local_filename
 	ld c, -1
 .find_original_filename_length
 	ld a, (hl)
@@ -782,8 +781,9 @@ include "vdap.def"
 	jr nz, find_original_filename_length
 	
 	ld a, 1
-	ld b, 21
-	
+	ld b, 21	
+	ld hl, local_filename
+	ld de, local_filename
 	oz (GN_Sip)
 	
 	call disable_cursor
@@ -814,11 +814,88 @@ include "vdap.def"
 	ld (file_buffer + 0), bc
 	ld (file_buffer + 2), hl
 	
-	push bc
 	oz (OS_Mpb)
-	pop bc
+	ex de, hl
 	
+	; try to open the file for input
+	ld bc, 255
+	ld hl, 0
+	ld (file_handle), hl
+	ld hl, local_filename
+	ld a, OP_IN
+	oz (GN_Opf)
+	
+	jr c, copy_file_not_found
+
+	; if we can open the file, it already exists... so close it
+	oz (GN_Cl)
+	jp c, copy_file_error
+	
+	; prompt for overwrite
+	
+	ld a, 1
+	ld (cursor_x), a
+	ld a, 5
+	ld (cursor_y), a
+	
+	call goto_cursor
+	
+	; overwrite prompt
+	ld hl, overwrite
+	oz (GN_Sop)
+	
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
+	
+	oz (GN_Sop)
+	oz (Gn_Nln)
+	
+	call get_cursor
+	
+	ld a, 17
+	ld (cursor_x), a
+	call goto_cursor
+	
+	ld a, 'Y'
+	call confirm
+	jp c, appl_exit
+	
+	cp ESC
+	jp z, copy_file_free
+	
+	cp 'Y'
+	jr z, copy_file_can_overwrite
+
+.copy_file_free_redraw_dialog
+
+	; free the copy buffer and redraw the dialog to prompt for a different filename
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	
+	ld ix, (memory_pool)
+	ld a, b
+	ld bc, 256
+	oz (OS_Mfr)
+	
+	jp dir_copy_file_show_info
+
+.copy_file_error_free_redraw_dialog
+	oz (GN_Err)
+	jr copy_file_free_redraw_dialog
+
+.copy_file_not_found
+
+	; is the problem a bad filename?
+	cp RC_IVF
+	jr z, copy_file_error_free_redraw_dialog
+
+.copy_file_can_overwrite
+
 	; open the file for output
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
 	ex de, hl
 	
 	ld bc, 255
@@ -1089,7 +1166,7 @@ include "vdap.def"
 .drive_close_file
 	; close the file on the drive
 	ld ix, (port_handle)
-	call flush_to_cr
+	call flush_to_timeout
 	ld a, VDAP_CLF
 	ld hl, filename + 1
 	call send_command_string
@@ -1102,11 +1179,32 @@ include "vdap.def"
 .copy_file_fail_error
 	ld a, RC_FAIL
 .copy_file_error
-	
+
+	; is there a partial file to delete?
 	push af
-	call busy_end
+	
+	ld hl, (file_handle)
+	ld a, h
+	or l
+	jr z, copy_file_error_no_partial
+	
+	; close the file
+	push hl
+	pop ix
+	oz (GN_Cl)
+	
+	ld hl, 0
+	ld (file_handle), hl
+
+	; delete the partial file
+	ld hl, local_filename
+	ld b, 0
+	oz (GN_Del)
+.copy_file_error_no_partial
+
 	pop af
 	
+	; display the system error message
 	oz (GN_Err)
 
 .copy_file_free
@@ -1114,6 +1212,10 @@ include "vdap.def"
 	; disable escape detection
 	ld a, SC_DIS
 	oz (OS_Esc)
+	
+	; flush any remaining data
+	ld ix, (port_handle)
+	call flush_to_timeout
 
 	; no longer busy
 	call busy_end
@@ -1567,6 +1669,17 @@ include "vdap.def"
 	cp CR
 	jr nz, flush_to_cr_loop
 .flush_to_cr_timeout
+	pop af
+	ret
+
+; flush the input until timeout
+.flush_to_timeout
+	push af
+.flush_to_timeout_loop
+	call get_byte
+	jr c, flush_to_timeout_timeout
+	jr flush_to_timeout_loop
+.flush_to_timeout_timeout
 	pop af
 	ret
 
@@ -2258,7 +2371,7 @@ include "vdap.def"
 ; out: Fz = 1 if there are no events
 ;      Fz = 0 if there is an event with A being the event code
 .check_events
-
+	
 	; check if there's any incoming data
 	ld ix, (port_handle)
 	ld l, SI_ENQ
@@ -2467,6 +2580,16 @@ include "vdap.def"
 	
 	ret
 
+.get_cursor
+
+	xor a
+	ld bc, NQ_WCUR
+	oz (OS_Nq)
+	
+	ret c
+	ld (cursor_x), bc
+	ret
+
 .busy_start
 	push af
 	push hl
@@ -2556,6 +2679,10 @@ include "vdap.def"
 
 .ok
 	defm "OK", 0
+.yes
+	defm "Yes", 0
+.no
+	defm "No", 0
 
 .no_disk
 	defm "No disk", 0
@@ -2596,7 +2723,14 @@ include "vdap.def"
 	defm "Date created  : ", 0
 
 .save_as_file
-	defm "Save as file  : ", 0
+	defm "Save as file  : "
+	defm SOH, "2C", 254
+	defb 0
+
+.overwrite
+	defm "Overwrite     : "
+	defm SOH, "2C", 254
+	defb 0
 
 .str_cmp
 	push hl
@@ -2738,4 +2872,77 @@ include "vdap.def"
 	ld (oz_date_time + 5), a
 
 	pop ix
+	ret
+
+.confirm
+	
+	push af
+	call enable_cursor
+	pop af
+
+.confirm_loop
+	ld hl, yes
+	ld b, 3
+	cp 'Y'
+	jr z, confirm_got_symbol
+	ld hl, no
+	ld b, 2
+.confirm_got_symbol
+	
+	ld c, a
+	push bc
+	oz (GN_Sop)
+	pop bc
+	
+	ld a, b
+	cp 3
+	jr z, confirm_bs_loop
+	ld a, ' '
+	oz (OS_Out)
+	inc b
+
+.confirm_bs_loop
+	ld a, BS
+	oz (OS_Out)
+	djnz confirm_bs_loop
+
+.confirm_key_loop
+	
+	oz (OS_In)
+	jr c, confirm_end
+	
+	cp 'y'
+	jr z, confirm_set_y
+	cp 'Y'
+	jr z, confirm_set_y
+	
+	cp 'n'
+	jr z, confirm_set_n
+	cp 'n'
+	jr z, confirm_set_n
+	
+	cp CR
+	jr z, confirm_return
+	
+	cp ESC
+	jr z, confirm_end
+	
+	jr confirm_key_loop
+
+.confirm_set_y
+	ld a, 'Y'
+	jr confirm_loop
+.confirm_set_n
+	ld a, 'N'
+	jr confirm_loop
+
+.confirm_return
+	or a
+	ld a, c
+	; fall-through to confirm_end
+
+.confirm_end
+	push af
+	call disable_cursor
+	pop af
 	ret
