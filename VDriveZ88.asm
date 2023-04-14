@@ -348,6 +348,12 @@ include "vdap.def"
 	cp RC_TIME
 	jr z, key_loop
 	
+	cp RC_SUSP
+	jr z, key_loop
+	
+	cp RC_DRAW
+	jp z, dir_list_start
+	
 	; treat any other errors as a request to quit
 	jp appl_exit
 
@@ -705,7 +711,9 @@ include "vdap.def"
 	ld de, local_filename
 	ld bc, 32
 	ldir
-	
+
+.dir_copy_file_redraw_dialog
+
 	ld hl, window_dialog_begin
 	oz (GN_Sop)
 	ld hl, filename + 1
@@ -715,14 +723,7 @@ include "vdap.def"
 
 .dir_copy_file_show_info
 
-	ld a, 1
-	ld (cursor_x), a
-	ld (cursor_y), a
-	
-	call goto_cursor
-	
 	; show file size
-	
 	ld hl, prop_size
 	oz (GN_Sop)
 	
@@ -732,12 +733,8 @@ include "vdap.def"
 	xor a
 	
 	oz (GN_Pdn)
-	oz (Gn_Nln)
 	
 	; show file date modified
-	
-	ld a, ' '
-	oz (OS_Out)
 	ld hl, prop_modified
 	oz (GN_Sop)
 	
@@ -746,12 +743,8 @@ include "vdap.def"
 	
 	ld hl, oz_date_time
 	oz (GN_Sdo)
-	oz (Gn_Nln)
 	
 	; show file date created
-	
-	ld a, ' '
-	oz (OS_Out)
 	ld hl, prop_created
 	oz (GN_Sop)
 	
@@ -760,17 +753,8 @@ include "vdap.def"
 	
 	ld hl, oz_date_time
 	oz (GN_Sdo)
-	oz (Gn_Nln)
 	
-	; prompt for file name to save as
-	oz (Gn_Nln)
-	ld a, ' '
-	oz (OS_Out)
-	ld hl, save_as_file
-	oz (GN_Sop)
-	
-	call enable_cursor
-	
+	; get the length of the local filename
 	ld hl, local_filename
 	ld c, -1
 .find_original_filename_length
@@ -779,6 +763,14 @@ include "vdap.def"
 	inc c
 	or a
 	jr nz, find_original_filename_length
+	
+.dir_enter_file_prompt_loop
+	
+	; prompt for file name to save as
+	ld hl, save_as_file
+	oz (GN_Sop)
+
+	call enable_cursor
 	
 	ld a, 1
 	ld b, 21	
@@ -833,13 +825,6 @@ include "vdap.def"
 	
 	; prompt for overwrite
 	
-	ld a, 1
-	ld (cursor_x), a
-	ld a, 5
-	ld (cursor_y), a
-	
-	call goto_cursor
-	
 	; overwrite prompt
 	ld hl, overwrite
 	oz (GN_Sop)
@@ -849,11 +834,10 @@ include "vdap.def"
 	oz (OS_Mpb)
 	
 	oz (GN_Sop)
-	oz (Gn_Nln)
 	
 	call get_cursor
 	
-	ld a, 17
+	ld a, 11
 	ld (cursor_x), a
 	call goto_cursor
 	
@@ -1249,12 +1233,18 @@ include "vdap.def"
 	jp dir_list_start
 
 .dir_enter_file_prompt_error
-
-	ld hl, window_dialog_close
-	oz (GN_Sop)
+	
+	cp RC_QUIT
+	jp z, appl_exit
+	
+	cp RC_SUSP
+	jp z, dir_enter_file_prompt_loop
 	
 	cp RC_DRAW
 	jp z, dir_enter_file
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
 	
 	cp RC_ESC
 	jp z, dir_list_start
@@ -2716,18 +2706,23 @@ include "vdap.def"
 	defm "D:/", 0
 
 .prop_size
+	defm SOH, "3@", 32 + 1, 32 + 1
 	defm "Size (bytes)  : ", 0
 .prop_modified
+	defm SOH, "3@", 32 + 1, 32 + 2
 	defm "Date modified : ", 0
 .prop_created
+	defm SOH, "3@", 32 + 1, 32 + 3
 	defm "Date created  : ", 0
 
 .save_as_file
+	defm SOH, "3@", 32 + 1, 32 + 5
 	defm "Save as file  : "
 	defm SOH, "2C", 254
 	defb 0
 
 .overwrite
+	defm SOH, "3@", 32 + 1, 32 + 5
 	defm "Overwrite     : "
 	defm SOH, "2C", 254
 	defb 0
@@ -2909,7 +2904,7 @@ include "vdap.def"
 .confirm_key_loop
 	
 	oz (OS_In)
-	jr c, confirm_end
+	jr c, confirm_error
 	
 	cp 'y'
 	jr z, confirm_set_y
@@ -2921,6 +2916,9 @@ include "vdap.def"
 	cp 'n'
 	jr z, confirm_set_n
 	
+	cp LF
+	jr z, confirm_toggle
+	
 	cp CR
 	jr z, confirm_return
 	
@@ -2929,12 +2927,32 @@ include "vdap.def"
 	
 	jr confirm_key_loop
 
+.confirm_toggle
+	ld a, c
+	cp 'Y'
+	jr z, confirm_set_n
+
 .confirm_set_y
 	ld a, 'Y'
 	jr confirm_loop
 .confirm_set_n
 	ld a, 'N'
 	jr confirm_loop
+
+.confirm_error
+
+	cp RC_QUIT
+	jp z, appl_exit
+
+	cp RC_SUSP
+	jr z, confirm_key_loop
+	
+	cp RC_DRAW
+	ld c, a
+	jr z, confirm_loop
+	
+	ld a, ESC
+	jr confirm_end
 
 .confirm_return
 	or a
