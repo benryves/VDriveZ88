@@ -152,13 +152,22 @@ include "vdap.def"
 	xor a
 	ld bc, 256
 	oz (OS_Mal)
-	jp z, appl_exit
+	jp c, appl_exit
 	
 	ld (path + 0), bc
 	ld (path + 2), hl
 	
 	oz (OS_Mpb)
 	ld (hl), 0
+	
+	; allocate memory for the file transfer buffer
+	xor a
+	ld bc, 256
+	oz (OS_Mal)
+	jp c, appl_exit
+	
+	ld (file_buffer + 0), bc
+	ld (file_buffer + 2), hl
 	
 	; open the screen from its name
 	ld bc, filename_length
@@ -780,31 +789,35 @@ include "vdap.def"
 	
 	call disable_cursor
 	
-	jp c, dir_enter_file_prompt_error
-	cp ESC
-	ld a, RC_ESC
-	jp z, dir_enter_file_prompt_error
+	jr nc, dir_enter_file_prompt_ok
+
+.dir_enter_file_prompt_error
 	
-	; ... copy the file ...
-	ld ix, (memory_pool)
+	cp RC_QUIT
+	jp z, appl_exit
 	
-	xor a
-	ld bc, 256
-	oz (OS_Mal)
+	cp RC_SUSP
+	jp z, dir_enter_file_prompt_loop
 	
-	jr nc, copy_file_allocated
+	cp RC_DRAW
+	jp z, dir_enter_file
 	
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	
-	; couldn't allocate scratch buffer for file transfers
-	oz (GN_Err)
-	jp dir_list_start
+	cp RC_ESC
+	jp z, dir_list_start
+	
+	jp appl_exit
 
-.copy_file_allocated
-
-	ld (file_buffer + 0), bc
-	ld (file_buffer + 2), hl
+.dir_enter_file_prompt_ok
+	cp ESC
+	ld a, RC_ESC
+	jr z, dir_enter_file_prompt_error
+	
+	; ... copy the file ...
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
 	
 	oz (OS_Mpb)
 	ex de, hl
@@ -846,33 +859,21 @@ include "vdap.def"
 	jp c, appl_exit
 	
 	cp ESC
-	jp z, copy_file_free
+	jp z, copy_file_exit
 	
 	cp 'Y'
 	jr z, copy_file_can_overwrite
-
-.copy_file_free_redraw_dialog
-
-	; free the copy buffer and redraw the dialog to prompt for a different filename
-	ld bc, (file_buffer + 0)
-	ld hl, (file_buffer + 2)
-	
-	ld ix, (memory_pool)
-	ld a, b
-	ld bc, 256
-	oz (OS_Mfr)
 	
 	jp dir_copy_file_show_info
-
-.copy_file_error_free_redraw_dialog
-	oz (GN_Err)
-	jr copy_file_free_redraw_dialog
 
 .copy_file_not_found
 
 	; is the problem a bad filename?
 	cp RC_IVF
-	jr z, copy_file_error_free_redraw_dialog
+	jr nz, copy_file_can_overwrite
+	
+	oz (GN_Err)
+	jp dir_copy_file_show_info
 
 .copy_file_can_overwrite
 
@@ -1130,7 +1131,7 @@ include "vdap.def"
 .copy_file_done
 
 	call drive_close_file	
-	jr copy_file_free
+	jr copy_file_exit
 
 .copy_file_block_drive_error
 	push af
@@ -1191,7 +1192,7 @@ include "vdap.def"
 	; display the system error message
 	oz (GN_Err)
 
-.copy_file_free
+.copy_file_exit
 
 	; disable escape detection
 	ld a, SC_DIS
@@ -1221,35 +1222,7 @@ include "vdap.def"
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	
-	; free the file buffer
-	ld bc, (file_buffer + 0)
-	ld hl, (file_buffer + 2)
-	
-	ld ix, (memory_pool)
-	ld a, b
-	ld bc, 256
-	oz (OS_Mfr)
-	
 	jp dir_list_start
-
-.dir_enter_file_prompt_error
-	
-	cp RC_QUIT
-	jp z, appl_exit
-	
-	cp RC_SUSP
-	jp z, dir_enter_file_prompt_loop
-	
-	cp RC_DRAW
-	jp z, dir_enter_file
-	
-	ld hl, window_dialog_close
-	oz (GN_Sop)
-	
-	cp RC_ESC
-	jp z, dir_list_start
-	
-	jp appl_exit
 
 .dir_up_a_level
 
@@ -1295,9 +1268,25 @@ include "vdap.def"
 	; free directory resources
 	call dir_free
 	
+	; free file transfer buffer
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	ld a, b
+	or c
+	or h
+	or l
+	jr z, file_buffer_not_allocated
+	
+	ld ix, (memory_pool)
+	ld a, b
+	ld bc, 256
+	oz (OS_Mfr)
+
+.file_buffer_not_allocated
+	
 	; free path variable
-	ld bc, (path+0)
-	ld hl, (path+2)
+	ld bc, (path + 0)
+	ld hl, (path + 2)
 	ld a, b
 	or c
 	or h
