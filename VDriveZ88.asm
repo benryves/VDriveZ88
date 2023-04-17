@@ -235,6 +235,14 @@ include "vdap.def"
 	; skip the next block as we've already reset the path
 	jr dir_list_start
 	
+.dir_list_start_from_current
+	
+	call busy_start
+	call dir
+	call busy_end
+	
+	jr dir_list_start
+
 .dir_list_start_from_root
 
 	; clear the stored path
@@ -348,6 +356,9 @@ include "vdap.def"
 	
 	cp CR
 	jp z, dir_enter
+	
+	cp 'S' - '@' ; <>S
+	jp z, send_file
 	
 	jr key_loop
 
@@ -765,13 +776,7 @@ include "vdap.def"
 	
 	; get the length of the local filename
 	ld hl, local_filename
-	ld c, -1
-.find_original_filename_length
-	ld a, (hl)
-	inc hl
-	inc c
-	or a
-	jr nz, find_original_filename_length
+	call str_len
 	
 .dir_enter_file_prompt_loop
 	
@@ -854,7 +859,7 @@ include "vdap.def"
 	ld (cursor_x), a
 	call goto_cursor
 	
-	ld a, 'Y'
+	ld a, 'N'
 	call confirm
 	jp c, appl_exit
 	
@@ -945,130 +950,11 @@ include "vdap.def"
 	ld (cursor_y), a
 	call goto_cursor
 	
-	ld ix, (screen_handle)
-	
-	ld de, 0
-	ld hl, data_transferred
-	xor a
-	oz (GN_Pdn)
-	
-	ld a, '/'
-	oz (OS_Out)
-	
-	ld de, 0
-	ld hl, file_size
-	xor a
-	oz (GN_Pdn)
-	
-	ld a, ' '
-	oz (OS_Out)
-	ld a, '('
-	oz (OS_Out)
-	
-	; calculate %ge
-	
-	ld hl, (file_size + 0)
-	ld de, (file_size + 2)
-	
-	ld a, h
-	or l
-	or d
-	or e
-	
-	ld hl, 100
-	
-	jr z, copy_file_is_empty
-	
-	ld hl, (data_transferred + 2)
-	ld de, (file_size + 2)
-	exx
-	ld hl, (data_transferred + 0)
-	ld de, (file_size + 0)
-	exx
-	ld bc, 0
-	
-	fpp (FP_DIV)
-	
-	ld de, 0
-	exx
-	ld de, 100
-	exx
-	ld b, 0
-	
-	fpp (FP_MUL)
-	fpp (FP_FIX)
-	
-	exx
-	push hl
-	exx
-	pop hl
+	call show_transfer_progress
 
-.copy_file_is_empty
-
-	ld (oz_date_time + 0), hl
-	ld hl, 0
-	ld (oz_date_time + 2), hl
-	
-	ld de, 0
-	ld hl, oz_date_time
-	ld ix, (screen_handle)
-	xor a
-	oz (GN_Pdn)
-	
-	ld a, '%'
-	oz (OS_Out)
-	ld a, ')'
-	oz (OS_Out)
-
-	; how much data do we need to pull in?
-	ld hl, (data_remaining + 0)
-	ld de, (data_remaining + 2)
-	
-	; is it 0?
-	ld a, h
-	or l
-	or d
-	or e
+	; get the size of the chunk to transfer
+	call get_transfer_chunk_size
 	jp z, copy_file_done
-	
-	; is it >=256 bytes?
-	ld a, d
-	or e
-	jr nz, copy_file_gte_256
-	
-	ld de, 256
-	or a
-	sbc hl, de
-	jr nc, copy_file_gte_256
-
-.copy_file_lt_256
-	
-	; we're under 256 bytes
-	ld bc, (data_remaining + 0)
-	ld (chunk_size), bc
-	
-	ld bc, 0
-	ld (data_remaining + 0), bc
-	jr copy_file_got_chunk_size
-
-.copy_file_gte_256
-	
-	; we have >= 256 bytes to go, so cap at 256
-	ld bc, 256
-	ld (chunk_size), bc
-	
-	or a
-	
-	ld hl, (data_remaining + 0)
-	sbc hl, bc
-	ld (data_remaining + 0), hl
-	
-	ld bc, 0
-	ld hl, (data_remaining + 2)
-	sbc hl, bc
-	ld (data_remaining + 2), hl
-
-.copy_file_got_chunk_size
 
 	; request data from the file
 	ld ix, (port_handle)
@@ -1117,14 +1003,7 @@ include "vdap.def"
 .copy_file_block_written
 	
 	; increment the data transferred counter
-	ld hl, (data_transferred + 0)
-	ld de, (chunk_size)
-	add hl, de
-	ld (data_transferred + 0), hl
-	ld de, 0
-	ld hl, (data_transferred + 2)
-	adc hl, de
-	ld (data_transferred + 2), hl
+	call update_transfer_counters
 	
 	jp copy_file_loop
 
@@ -1215,6 +1094,9 @@ include "vdap.def"
 	pop ix
 	
 	oz (GN_Cl)
+	
+	ld hl, 0
+	ld (file_handle), hl
 
 .copy_file_handle_closed
 	
@@ -1256,6 +1138,392 @@ include "vdap.def"
 .dir_up_found_path_end
 	ld (hl), 0
 	jp dir_list_start
+
+.send_file
+
+	ld hl, window_dialog_begin
+	oz (GN_Sop)
+	ld hl, send_file_title
+	oz (GN_Sop)
+	ld hl, window_dialog_end
+	oz (GN_Sop)
+	
+	; clear the default local filename
+	ld c, 0
+	ld hl, local_filename
+	ld (hl), 0
+
+.send_file_source_prompt_loop
+	
+	ld hl, send_file_prompt
+	oz (GN_Sop)
+	
+	call enable_cursor
+	
+	ld a, 1
+	ld b, 21	
+	ld hl, local_filename
+	ld de, local_filename
+	oz (GN_Sip)
+	
+	call disable_cursor
+	
+	jr nc, send_file_source_prompt_ok
+
+.send_file_source_prompt_error
+	
+	cp RC_QUIT
+	jp z, appl_exit
+	
+	cp RC_SUSP
+	jp z, send_file_source_prompt_loop
+	
+	cp RC_DRAW
+	jp z, send_file
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	cp RC_ESC
+	jp z, dir_list_start
+	
+	jp appl_exit
+
+.send_file_source_prompt_ok
+	cp ESC
+	ld a, RC_ESC
+	jr z, send_file_source_prompt_error
+	
+	; try to open the file
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	
+	oz (OS_Mpb)
+	
+	ex de, hl
+	ld bc, 255
+	ld hl, local_filename
+	ld a, OP_IN
+	
+	oz (GN_Opf)
+	
+	jr nc, send_file_got_source_open
+
+	; error opening the file
+	oz (GN_Err)
+	
+	ld hl, local_filename
+	call str_len
+	jp send_file_source_prompt_loop
+
+.send_file_got_source_open
+	
+	ld (file_handle), ix
+	
+	; get the size of the file
+	ld a, FA_EXT
+	ld de, 0
+	oz (OS_Frm)
+	
+	ld (file_size + 0), bc
+	ld (file_size + 2), de
+	
+	jr nc, send_file_got_source
+	
+	; convert the local filename to UPPERCASE, get its length, then prompt for save name
+	ld hl, local_filename
+	call str_to_upper
+	call str_len
+	jp send_file_source_prompt_loop
+
+
+.send_file_got_source
+	
+	ld hl, window_dialog_begin
+	oz (GN_Sop)
+	
+	; show the full local filename in the title
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	
+	oz (OS_Mpb)
+	
+	oz (GN_Sop)
+	
+	ld hl, window_dialog_end
+	oz (GN_Sop)
+	
+	; redraw the send prompt with the entered local filename
+	ld hl, send_file_prompt
+	oz (GN_Sop)
+	
+	ld hl, local_filename
+	oz (GN_Sop)
+
+	; show file size
+	ld hl, prop_size_3
+	oz (GN_Sop)
+	
+	ld hl, file_size
+	ld de, 0
+	ld ix, (screen_handle)
+	xor a
+	
+	oz (GN_Pdn)
+
+	ld hl, local_filename
+	call str_len
+
+.send_file_dest_prompt_loop
+	
+	ld hl, send_as_file
+	oz (GN_Sop)
+
+	call enable_cursor
+	
+	ld a, 1
+	ld b, 21	
+	ld hl, local_filename
+	ld de, local_filename
+	oz (GN_Sip)
+	
+	call disable_cursor
+	
+	jr nc, send_file_dest_prompt_ok
+
+.send_file_dest_prompt_error
+	
+	cp RC_QUIT
+	jp z, appl_exit
+	
+	cp RC_SUSP
+	jp z, send_file_dest_prompt_loop
+	
+	cp RC_DRAW
+	jp z, send_file_got_source
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	cp RC_ESC
+	jp nz, appl_exit
+
+.send_file_exit
+	
+	ld ix, (file_handle)
+	oz (GN_Cl)
+	ld hl, 0
+	ld (file_handle), hl
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	ld ix, (port_handle)
+	jp dir_list_start
+
+.send_file_dest_prompt_ok
+	
+	cp ESC
+	ld a, RC_ESC
+	jr z, send_file_dest_prompt_error
+	
+	; validate the filename
+	ld hl, local_filename
+	call validate_filename
+	
+	jr nc, send_file_dest_filename_ok
+	oz (GN_Err)
+	
+	jp send_file_dest_prompt_loop
+
+.send_file_dest_filename_ok
+	
+	; does the file already exit?
+	ld hl, local_filename
+	call get_file_info
+	
+	jr nc, send_file_check_overwrite
+	
+	; error getting file details
+	jr send_file_exit
+
+.send_file_check_overwrite
+	
+	jr nz, send_file_can_overwrite
+	
+	; prompt for overwrite
+	
+	; overwrite prompt
+	ld hl, overwrite
+	oz (GN_Sop)
+	
+	ld hl, local_filename
+	oz (GN_Sop)
+	
+	call get_cursor
+	
+	ld a, 11
+	ld (cursor_x), a
+	call goto_cursor
+	
+	ld a, 'N'
+	call confirm
+	jp c, appl_exit
+	
+	cp ESC
+	jp z, send_file_exit
+	
+	cp 'Y'
+	jr z, send_file_can_overwrite
+	
+	jp send_file_got_source
+
+.send_file_can_overwrite
+
+	; open the file on the drive for writing
+	ld hl, local_filename
+	ld a, VDAP_OPW
+	call send_command_string
+	
+	call check_prompt_or_error
+	jp nz, send_file_open_error
+	
+	; file_size has been overwitten by size of file on disk
+	
+	; recover the size of the local file
+	ld ix, (file_handle)
+	ld a, FA_EXT
+	ld de, 0
+	oz (OS_Frm)
+	
+	ld (file_size + 0), bc
+	ld (file_size + 2), de
+	
+	ld (data_remaining + 0), bc
+	ld (data_remaining + 2), de
+	
+	ld hl, 0
+	ld (data_transferred + 0), hl
+	ld (data_transferred + 2), hl
+
+	; we'll want to be able to cancel transfers with the escape key
+	ld a, SC_ENA
+	oz (OS_Esc)
+	
+	; we're about to be very busy...
+	call busy_start
+	
+	; ...but we're still in window #2
+	ld hl, window_dialog_select
+	oz (GN_Sop)
+
+.send_file_loop
+	
+	; show progress
+	ld a, 17
+	ld (cursor_x), a
+	ld a, 3
+	ld (cursor_y), a
+	call goto_cursor
+	
+	call show_transfer_progress
+	
+	ld ix, (file_handle)
+
+	call get_transfer_chunk_size
+	jp z, send_file_done
+	
+	; read data from the local file
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
+	
+	ex de, hl
+	ld hl, 0
+	ld bc, (chunk_size)
+	
+	oz (OS_Mv)
+	jp c, send_file_error
+	
+	; send it to the connected drive
+	ld ix, (port_handle)
+	
+	ld de, 0
+	ld hl, (chunk_size)
+	push hl
+	ld a, VDAP_WRF
+	call send_command_dword
+	
+	; get the buffer ready
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
+	
+	pop bc
+	ld ix, (port_handle)
+	ld de, 0
+	
+	oz (OS_Mv)
+	jp c, send_file_error
+	
+	call check_prompt_or_error
+	jp nz, send_file_error
+	
+	call update_transfer_counters
+	
+	jp send_file_loop
+
+.send_file_done
+	
+	call busy_end
+	
+	; disable escape detection
+	ld a, SC_DIS
+	oz (OS_Esc)
+	
+	ld ix, (port_handle)
+	ld hl, local_filename
+	ld a, VDAP_CLF
+	call send_command_string
+	
+	call check_prompt_or_error
+	jr nz, send_file_error
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	jp dir_list_start_from_current
+
+
+.send_file_error
+	push af
+
+	; acknowledge escape
+	ld a, SC_ACK
+	oz (OS_Esc)
+	
+	; disable escape detection
+	ld a, SC_DIS
+	oz (OS_Esc)
+
+	; close the open file	
+	ld ix, (port_handle)
+	call flush_to_timeout
+	call sync
+	ld hl, local_filename
+	ld a, VDAP_CLF
+	call send_command_string
+	call check_prompt
+	call flush_to_cr
+	pop af
+
+.send_file_open_error
+	push af
+	call busy_end
+	pop af
+	
+	oz (GN_Err)
+	jp send_file_exit
 
 .appl_exit
 
@@ -1299,6 +1567,51 @@ include "vdap.def"
 	oz (OS_Mfr)
 
 .path_not_allocated
+
+	; close any open file handles
+	ld hl, (file_handle)
+	ld a, h
+	or l
+	jr z, file_not_opened
+	
+	push hl
+	pop ix
+	
+	oz (GN_Cl)
+	ld hl, 0
+	ld (file_handle), hl
+
+.file_not_opened
+
+	; close the open screen handle
+	ld hl, (screen_handle)
+	ld a, h
+	or l
+	jr z, screen_not_opened
+	
+	push hl
+	pop ix
+	
+	oz (GN_Cl)
+	ld hl, 0
+	ld (screen_handle), hl
+
+.screen_not_opened
+
+	; close the open port handle
+	ld hl, (port_handle)
+	ld a, h
+	or l
+	jr z, port_not_opened
+	
+	push hl
+	pop ix
+	
+	oz (GN_Cl)
+	ld hl, 0
+	ld (port_handle), hl
+
+.port_not_opened
 
 	; free memory pool
 	ld ix, (memory_pool)
@@ -1600,7 +1913,7 @@ include "vdap.def"
 	; not > or ND
 	scf
 	ccf
-	jr flush_to_cr
+	jp flush_to_cr
 
 .check_prompt_no_disk
 	
@@ -1616,6 +1929,97 @@ include "vdap.def"
 	ld a, e
 	ret z
 	jr flush_to_cr
+
+; checks for a prompt or an error message
+; in:  a = command response to check for
+; out: Fc = 1 on timeout
+;      Fz = 0 on success, 1 on error
+;      a = RC_? error code
+.check_prompt_or_error
+	
+	call get_byte
+	ld e, a
+	jr c, check_prompt_error_timeout
+	
+	cp '>'
+	jr z, check_prompt_or_error_prompt
+	
+	call get_byte
+	ld d, a
+	jr c, check_prompt_error_timeout
+	
+	ld a, CR
+	call check_byte
+	jr c, check_prompt_error_timeout
+	
+	push hl
+	
+	ld hl, check_prompt_error_codes
+	ld b, [ check_prompt_error_codes_end - check_prompt_error_codes ] / 3
+
+.check_prompt_check_error_code
+	
+	ld a, (hl)
+	inc hl
+	cp e
+	jr nz, check_prompt_check_error_code_not_b1
+	
+	ld a, (hl)
+	inc hl
+	cp d
+	jr nz, check_prompt_check_error_code_not_b2
+	
+	jr check_prompt_found_error
+
+.check_prompt_check_error_code_not_b1
+	inc hl
+.check_prompt_check_error_code_not_b2
+	inc hl
+	
+	djnz check_prompt_check_error_code
+	pop hl
+	
+	jr check_prompt_unknown_error
+
+.check_prompt_found_error
+	ld a, (hl)
+	pop hl
+	or a
+	scf
+	jr flush_to_cr
+
+.check_prompt_unknown_error
+	; unknown error
+	scf
+	ccf
+	ld a, RC_FAIL
+	jr flush_to_cr
+
+.check_prompt_or_error_prompt
+	ld a, CR
+	call check_byte
+	jr c, check_prompt_error_timeout
+	xor a
+	ret
+
+.check_prompt_error_timeout
+	ld a, RC_TIME
+	or a
+	scf
+	ret
+
+.check_prompt_error_codes
+	defm "BC", RC_SNTX ; BC = Bad Command
+	defm "CF", RC_FAIL ; CF = Command Failed
+	defm "DF", RC_ROOM ; DF = Disk Full
+	defm "FI", RC_FAIL ; FI = Invalid
+	defm "FN", RC_IVF  ; FN = Filename Invalid
+	defm "FO", RC_USE  ; FO = File Open
+	defm "RO", RC_WP   ; RO = Read Only
+	defm "ND", RC_USE  ; ND = No Disk
+	defm "NE", RC_USE  ; NE = Not Empty
+	defm "NU", RC_ONF  ; NU = No Upgrade
+.check_prompt_error_codes_end
 
 ; checks for a particular response to a command
 ; in:  a = command response to check for
@@ -2256,12 +2660,26 @@ include "vdap.def"
 	pop hl
 	
 	; now we should get the original filename followed by a space
+	push hl
+	call get_byte
+	jp c, get_file_info_name_comm_error
+	cp CR
+	jr nz, get_file_info_size_space_skip_cr
+	
 .get_file_info_size_space
 	call get_byte
-	ret c
+	jp c, get_file_info_name_comm_error
+.get_file_info_size_space_skip_cr
 	cp ' '
-	jr nz, get_file_info_size_space
-	
+	jr z, get_file_info_size_space_got_name
+	cp (hl)
+	inc hl
+	jp nz, get_file_info_name_fn_error
+	jr get_file_info_size_space
+
+.get_file_info_size_space_got_name
+	pop hl
+
 	; next four bytes are the file size
 	ld de, file_size
 	ld b, 4
@@ -2293,13 +2711,29 @@ include "vdap.def"
 	push hl
 	call send_command_string
 	pop hl
-		
+	
 	; now we should get the original filename followed by a space
+	push hl
+	
+	call get_byte
+	jr c, get_file_info_name_comm_error
+	cp CR
+	jr nz, get_file_info_date_space_skip_cr
+	
 .get_file_info_date_space
 	call get_byte
-	ret c
+	jr c, get_file_info_name_comm_error
+.get_file_info_date_space_skip_cr
 	cp ' '
-	jr nz, get_file_info_date_space
+	jr z, get_file_info_date_space_got_name
+	cp (hl)
+	inc hl
+	jr nz, get_file_info_name_fn_error
+	jr get_file_info_date_space
+
+.get_file_info_date_space_got_name
+	pop hl
+
 	
 	; next four bytes are the file creation date
 	ld de, file_created
@@ -2344,6 +2778,20 @@ include "vdap.def"
 	
 	call flush_to_cr
 	xor a
+	ret
+
+.get_file_info_name_fn_error
+	; error is filename related (e.g. bad name)
+	xor a
+	inc a
+	; fall-through
+	
+.get_file_info_name_comm_error
+	; error is communications-related (e.g. drive timed out)
+	push af
+	call flush_to_timeout
+	pop af
+	pop hl
 	ret
 
 ; checks for incoming events from the drive
@@ -2697,6 +3145,9 @@ include "vdap.def"
 .prop_size
 	defm SOH, "3@", 32 + 1, 32 + 1
 	defm "Size (bytes)  : ", 0
+.prop_size_3
+	defm SOH, "3@", 32 + 1, 32 + 3
+	defm "Size (bytes)  : ", 0
 .prop_modified
 	defm SOH, "3@", 32 + 1, 32 + 2
 	defm "Date modified : ", 0
@@ -2713,6 +3164,21 @@ include "vdap.def"
 .overwrite
 	defm SOH, "3@", 32 + 1, 32 + 5
 	defm "Overwrite     : "
+	defm SOH, "2C", 254
+	defb 0
+
+.send_file_title
+	defm "Send file", 0
+
+.send_file_prompt
+	defm SOH, "3@", 32 + 1, 32 + 1
+	defm "Filename      : "
+	defm SOH, "2C", 254
+	defb 0
+
+.send_as_file
+	defm SOH, "3@", 32 + 1, 32 + 5
+	defm "Send as file  : "
 	defm SOH, "2C", 254
 	defb 0
 
@@ -2734,6 +3200,189 @@ include "vdap.def"
 	inc hl
 	inc de
 	jr str_cmp_loop
+
+.str_len
+	push hl
+	push af
+	ld bc, -1
+	call str_len_loop
+	pop af
+	pop hl
+	ret
+
+.str_len_loop
+	ld a, (hl)
+	inc hl
+	inc bc
+	or a
+	jr nz, str_len_loop
+	ret
+
+.str_to_upper
+	push hl
+	push af
+	call str_to_upper_loop
+	pop af
+	pop hl
+	ret
+
+.str_to_upper_loop
+	ld a, (hl)
+	or a
+	ret z
+	
+	cp 'a'
+	jr c, str_to_upper_not_lowercase
+	
+	cp 'z' + 1
+	jr nc, str_to_upper_not_lowercase
+	
+	add a, 'A' - 'a'
+	
+	ld (hl), a
+
+.str_to_upper_not_lowercase
+	inc hl
+	jr str_to_upper_loop
+
+
+; 5.3.1 Valid Characters
+; Filenames generated using the VNC1L monitor must be uppercase letters and numbers or one
+; of the following characters:
+; $ % ' - _ @ ~ ` ! ( ) { } ^ # &
+.validate_filename
+	call str_to_upper
+	push hl
+	push bc
+	call validate_filename_loop
+	pop bc
+	pop hl
+	ld a, RC_IVF
+	ret c
+	xor a
+	ret
+
+.validate_filename_loop
+	
+	ld bc, [8 + 1] * 256
+
+.validate_filename_first_part_loop
+	
+	ld a, (hl)
+	or a
+	jr z, validate_filename_check_empty
+	
+	cp '.'
+	jr z, validate_filename_got_dot
+	
+	call validate_filename_char
+	ret c
+	
+	ld (hl), a
+	inc hl
+	
+	inc c
+	djnz validate_filename_first_part_loop
+	
+	; too long
+	scf
+	ret
+	
+
+.validate_filename_got_dot
+	
+	ld a, c
+	or a
+	jr nz, validate_filename_first_part_not_empty
+	
+	scf
+	ret
+
+.validate_filename_first_part_not_empty
+
+	inc hl
+	ld bc, [3 + 1] * 256
+
+.validate_filename_extension_loop
+	ld a, (hl)
+	or a
+	ret z
+	jr z, validate_filename_check_empty
+	
+	call validate_filename_char
+	ret c
+	
+	ld (hl), a
+	inc hl
+	
+	inc c
+	djnz validate_filename_extension_loop
+
+.validate_filename_check_empty
+	ld a, c
+	or a
+	ret nz
+	scf
+	ret
+
+.validate_filename_char
+	; all characters from NUL..SP are illegal
+	cp '!'
+	ret c
+	
+	; characters from DEL and above are illegal
+	cp DEL
+	ccf
+	ret c
+	
+	; is the character a number?
+	cp '0'
+	jr c, validate_filename_not_numeric
+	cp '9' + 1
+	jr nc, validate_filename_not_numeric
+	
+	or a
+	ret
+
+.validate_filename_not_numeric
+
+	; is the character a letter?
+	cp 'A'
+	jr c, validate_filename_not_letter
+	cp 'Z' + 1
+	jr nc, validate_filename_not_letter
+	
+	or a
+	ret
+
+.validate_filename_not_letter
+	
+	; is it one of the permitted symbols?
+	push hl
+	push bc
+	
+	ld hl, validate_filename_symbols
+	ld b, validate_filename_symbol_count
+.validate_filename_symbol_loop
+	cp (hl)
+	jr z, validate_filename_valid_symbol
+	djnz validate_filename_symbol_loop
+	
+	pop bc
+	pop hl
+	
+	scf
+	ret
+
+.validate_filename_valid_symbol
+	pop bc
+	pop hl
+	ret
+
+.validate_filename_symbols
+	defm "$%'-_@~`!(){}^#&"
+
+.validate_filename_symbol_count equ 16
 
 ; convert a date and time from the VDAP format to the OZ format
 ; in:  hl = pointer to VDAP date-time to convert
@@ -2905,7 +3554,7 @@ include "vdap.def"
 	cp 'n'
 	jr z, confirm_set_n
 	
-	cp LF
+	cp 'J' - '@' ; <>J
 	jr z, confirm_toggle
 	
 	cp CR
@@ -2952,4 +3601,149 @@ include "vdap.def"
 	push af
 	call disable_cursor
 	pop af
+	ret
+	
+; prints progress from data_transferred and file_size to screen
+.show_transfer_progress
+	ld ix, (screen_handle)
+	
+	ld de, 0
+	ld hl, data_transferred
+	xor a
+	oz (GN_Pdn)
+	
+	ld a, '/'
+	oz (OS_Out)
+	
+	ld de, 0
+	ld hl, file_size
+	xor a
+	oz (GN_Pdn)
+	
+	ld a, ' '
+	oz (OS_Out)
+	ld a, '('
+	oz (OS_Out)
+	
+	; calculate %ge
+	
+	ld hl, (file_size + 0)
+	ld de, (file_size + 2)
+	
+	ld a, h
+	or l
+	or d
+	or e
+	
+	ld hl, 100
+	
+	jr z, progress_file_is_empty
+	
+	ld hl, (data_transferred + 2)
+	ld de, (file_size + 2)
+	exx
+	ld hl, (data_transferred + 0)
+	ld de, (file_size + 0)
+	exx
+	ld bc, 0
+	
+	fpp (FP_DIV)
+	
+	ld de, 0
+	exx
+	ld de, 100
+	exx
+	ld b, 0
+	
+	fpp (FP_MUL)
+	fpp (FP_FIX)
+	
+	exx
+	push hl
+	exx
+	pop hl
+
+.progress_file_is_empty
+
+	ld (oz_date_time + 0), hl
+	ld hl, 0
+	ld (oz_date_time + 2), hl
+	
+	ld de, 0
+	ld hl, oz_date_time
+	ld ix, (screen_handle)
+	xor a
+	oz (GN_Pdn)
+	
+	ld a, '%'
+	oz (OS_Out)
+	ld a, ')'
+	oz (OS_Out)
+	ret
+
+.get_transfer_chunk_size
+	
+	; how much data do we need to pull in?
+	ld hl, (data_remaining + 0)
+	ld de, (data_remaining + 2)
+	
+	; is it 0?
+	ld a, h
+	or l
+	or d
+	or e
+	ret z
+	
+	; is it >=256 bytes?
+	ld a, d
+	or e
+	jr nz, transfer_file_gte_256
+	
+	ld de, 256
+	or a
+	sbc hl, de
+	jr nc, transfer_file_gte_256
+
+.copy_file_lt_256
+	
+	; we're under 256 bytes
+	ld bc, (data_remaining + 0)
+	ld (chunk_size), bc
+	
+	ld bc, 0
+	ld (data_remaining + 0), bc
+	jr transfer_file_got_chunk_size
+
+.transfer_file_gte_256
+	
+	; we have >= 256 bytes to go, so cap at 256
+	ld bc, 256
+	ld (chunk_size), bc
+	
+	or a
+	
+	ld hl, (data_remaining + 0)
+	sbc hl, bc
+	ld (data_remaining + 0), hl
+	
+	ld bc, 0
+	ld hl, (data_remaining + 2)
+	sbc hl, bc
+	ld (data_remaining + 2), hl
+
+.transfer_file_got_chunk_size
+	xor a
+	dec a
+	ret
+
+; update the data transferred counters with the latest chunk size
+.update_transfer_counters
+	ld hl, (data_transferred + 0)
+	ld de, (chunk_size)
+	add hl, de
+	ld (data_transferred + 0), hl
+	ld de, 0
+	ld hl, (data_transferred + 2)
+	adc hl, de
+	ld (data_transferred + 2), hl
 	ret
