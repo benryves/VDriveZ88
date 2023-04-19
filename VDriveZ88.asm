@@ -1003,7 +1003,7 @@ include "vdap.def"
 
 .copy_file_done
 
-	call drive_close_file	
+	call drive_close_file
 	jr copy_file_exit
 
 .copy_file_block_drive_error
@@ -1091,7 +1091,42 @@ include "vdap.def"
 	
 	ld hl, 0
 	ld (file_handle), hl
-
+	
+	; if we had a file handle, then we must have copied a file.
+	
+	; update the file modified time
+	
+	ld hl, file_modified
+	call date_time_vdap_to_oz
+	
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	oz (OS_Mpb)
+	ex de, hl
+	
+	; open the DOR
+	
+	ld bc, 255
+	ld hl, 0
+	ld hl, local_filename
+	
+	ld a, OP_DOR
+	oz (GN_Opf)
+	jp c, copy_file_handle_closed
+	
+	; write the DOR record
+	
+	ld a, DR_WR
+	ld b, DT_UPD
+	ld c, 6
+	ld de, oz_date_time
+	oz (OS_Dor)
+	
+	; free the DOR
+	
+	ld a, DR_FRE
+	oz (OS_DOR)
+	
 .copy_file_handle_closed
 	
 	; close the dialog
