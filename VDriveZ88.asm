@@ -759,20 +759,14 @@ include "vdap.def"
 	oz (GN_Sop)
 	
 	ld hl, file_modified
-	call date_time_vdap_to_oz
-	
-	ld hl, oz_date_time
-	oz (GN_Sdo)
+	call print_vdap_date_time
 	
 	; show file date created
 	ld hl, prop_created
 	oz (GN_Sop)
 	
 	ld hl, file_created
-	call date_time_vdap_to_oz
-	
-	ld hl, oz_date_time
-	oz (GN_Sdo)
+	call print_vdap_date_time
 	
 	; get the length of the local filename
 	ld hl, local_filename
@@ -1203,23 +1197,73 @@ include "vdap.def"
 	ex de, hl
 	ld bc, 255
 	ld hl, local_filename
-	ld a, OP_IN
+	ld a, OP_DOR
 	
 	oz (GN_Opf)
 	
-	jr nc, send_file_got_source_open
+	jr nc, send_file_got_source_open_dor
 
-	; error opening the file
+	; error opening the file dor
 	oz (GN_Err)
 	
 	ld hl, local_filename
 	call str_len
 	jp send_file_source_prompt_loop
 
-.send_file_got_source_open
+.send_file_got_source_open_dor
 	
 	ld (file_handle), ix
 	
+	; get the modification date and time
+	ld a, DR_RD
+	ld b, DT_UPD
+	ld c, 6
+	ld de, oz_date_time
+	oz (OS_Dor)
+	
+	ld hl, file_modified
+	call date_time_oz_to_vdap
+	
+	; get the creation date and time
+	ld a, DR_RD
+	ld b, DT_CRE
+	ld c, 6
+	ld de, oz_date_time
+	oz (OS_Dor)
+	
+	ld hl, file_created
+	call date_time_oz_to_vdap
+	
+	; free the DOR handle
+	ld a, DR_FRE
+	oz (OS_Dor)
+	
+	; re-open the file for normal input
+	ld bc, (file_buffer + 0)
+	ld hl, (file_buffer + 2)
+	
+	oz (OS_Mpb)
+	
+	ex de, hl
+	ld bc, 255
+	ld hl, local_filename
+	ld a, OP_IN
+	
+	oz (GN_Opf)
+	
+	jr nc, send_file_got_source_open_in
+
+	; error opening the file for input
+	oz (GN_Err)
+	
+	ld hl, local_filename
+	call str_len
+	jp send_file_source_prompt_loop
+
+.send_file_got_source_open_in
+
+	ld (file_handle), ix
+
 	; get the size of the file
 	ld a, FA_EXT
 	ld de, 0
@@ -1252,16 +1296,9 @@ include "vdap.def"
 	
 	ld hl, window_dialog_end
 	oz (GN_Sop)
-	
-	; redraw the send prompt with the entered local filename
-	ld hl, send_file_prompt
-	oz (GN_Sop)
-	
-	ld hl, local_filename
-	oz (GN_Sop)
 
 	; show file size
-	ld hl, prop_size_3
+	ld hl, prop_size
 	oz (GN_Sop)
 	
 	ld hl, file_size
@@ -1270,7 +1307,21 @@ include "vdap.def"
 	xor a
 	
 	oz (GN_Pdn)
-
+	
+	; show file date modified
+	ld hl, prop_modified
+	oz (GN_Sop)
+	
+	ld hl, file_modified
+	call print_vdap_date_time
+	
+	; show file date created
+	ld hl, prop_created
+	oz (GN_Sop)
+	
+	ld hl, file_created
+	call print_vdap_date_time
+	
 	ld hl, local_filename
 	call str_len
 
@@ -3145,9 +3196,6 @@ include "vdap.def"
 .prop_size
 	defm SOH, "3@", 32 + 1, 32 + 1
 	defm "Size (bytes)  : ", 0
-.prop_size_3
-	defm SOH, "3@", 32 + 1, 32 + 3
-	defm "Size (bytes)  : ", 0
 .prop_modified
 	defm SOH, "3@", 32 + 1, 32 + 2
 	defm "Date modified : ", 0
@@ -3504,6 +3552,155 @@ include "vdap.def"
 	ld (oz_date_time + 3), bc
 	ld (oz_date_time + 5), a
 
+	pop ix
+	ret
+
+; convert a date and time from the OZ format to the VDAP format
+; in:  oz_date_time
+;      hl = pointer to VDAP date-time to convert to
+.date_time_oz_to_vdap
+	push ix
+	
+	push hl
+	pop ix
+	
+	; start with the time
+	
+	; first three bytes of oz_date_time is time of day in centiseconds
+	
+	ld hl, (oz_date_time + 0)
+	ld a, (oz_date_time + 2)
+	ld b, a
+	
+	; 60 * 60 * 100 = 360000cs in an hour
+	; 360000 = $057E40
+	ld de, $7E40
+	ld c, $05
+	oz (GN_D24)
+	
+	; BHL = seconds
+	ld a, l
+	ld (ix + 2), a
+	
+	; remainder -> dividend
+	ex de, hl
+	ld b, c
+	
+	; 60 * 100 = 6000cs in a minute
+	ld de, 6000
+	ld c, 0
+	oz (GN_D24)
+	
+	; BHL = minutes
+	ld a, l
+	ld (ix + 1), a
+	
+	; remainder -> dividend
+	ex de, hl
+	
+	; 200cs in a double-second
+	ld de, 200
+	oz (GN_D16)
+	
+	; HL = double-seconds
+	ld a, l
+	ld (ix + 0), a
+	
+	; vdap time is a 16-bit value, packed like this:
+	; HHHHHMMM MMMSSSSS
+	; (seconds are halved)
+	
+	ld a, (ix + 2)
+	add a, a
+	add a, a
+	add a, a
+	ld b, a
+	ld c, 0
+	
+	ld a, (ix + 1)
+	
+	srl a
+	rr c
+	srl a
+	rr c
+	srl a
+	rr c
+	
+	or b
+	ld (ix + 1), a
+	
+	ld a, (ix + 0)
+	or c
+	ld (ix + 0), a
+	
+	; now convert the date
+	
+	; fortunately there's an API call for that!
+	ld bc, (oz_date_time + 3)
+	ld a, (oz_date_time + 5)
+	oz (GN_Die)
+	
+	; oz date (Y-M-D) is now in DE-B-C
+	
+	; vdap date is a 16-bit value, packed like this:
+	; YYYYYYYM MMMDDDDD
+	; (years are offset from 1980)
+	
+	ld a, c
+	and $1F
+	ld c, a
+	xor a
+	
+	srl b
+	rr a
+	srl b
+	rr a
+	srl b
+	rr a
+	
+	or c
+	ld (ix + 2), a
+	
+	ld hl, -1980
+	add hl, de
+	
+	ld a, l
+	add a, a
+	or b
+	ld (ix + 3), a
+	
+	pop ix
+	ret
+
+.get_current_date_time
+	
+	ld de, oz_date_time + 3
+	oz (GN_Gmd)
+	
+	ld a, (oz_date_time + 3)
+	ld c, a
+	
+	ld de, oz_date_time + 0
+	oz (GN_Gmt)
+	
+	jr nz, get_current_date_time ; date has changed between calls, so fetch again
+	ret
+
+.print_vdap_date_time
+	push ix
+	push hl
+	push de
+	push bc
+	
+	call date_time_vdap_to_oz
+	
+	ld ix, (screen_handle)
+	ld hl, oz_date_time
+	oz (GN_Sdo)
+	
+	pop bc
+	pop de
+	pop hl
 	pop ix
 	ret
 
