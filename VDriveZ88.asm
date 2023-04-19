@@ -28,9 +28,9 @@ include "vdap.def"
 	defc dir_right = dir_left + dir_item_width * dir_cols
 	defc dir_bottom = dir_top + dir_rows
 
-; Safe workspace variables
+; Unsafe workspace variables
 
-	defc unsafe_ws = 138
+	defc unsafe_ws = 142
 	defc safe_ws = 0
 	
 	defc ram_vars = $1FFE - unsafe_ws
@@ -54,8 +54,9 @@ include "vdap.def"
 		dir_selected     ds.w 1          ; selected file index
 		path             ds.w 2          ; pointer to storage for full file path
 		file_size        ds.b 4          ; size of a file
-		file_created     ds.b 4          ; file creation date+time
-		file_modified    ds.b 4          ; file modification date+time
+		file_created     ds.w 2          ; file creation date+time
+		file_accessed    ds.w 2          ; file accessed date+time
+		file_modified    ds.w 2          ; file modification date+time
 		oz_date_time     ds.b 6          ; OZ-format date+time
 		local_filename   ds.b 32         ; local filename for copy operations
 		file_buffer      ds.w 2          ; allocated buffer to handle file transfers
@@ -875,6 +876,11 @@ include "vdap.def"
 	jp dir_copy_file_show_info
 
 .copy_file_can_overwrite
+	
+	; fetch the current date and time
+	call get_current_date_time
+	ld hl, file_accessed
+	call date_time_oz_to_vdap
 
 	; open the file for output
 	ld bc, (file_buffer + 0)
@@ -913,7 +919,8 @@ include "vdap.def"
 	; open the file for reading
 	ld a, VDAP_OPR
 	ld hl, filename + 1
-	call send_command_string
+	ld de, (file_accessed + 2) ; we only need the date
+	call send_command_string_word
 	jp c, copy_file_drive_error
 	
 	call check_prompt
@@ -1309,14 +1316,22 @@ include "vdap.def"
 	
 	jr nc, send_file_got_source
 	
-	; convert the local filename to UPPERCASE, get its length, then prompt for save name
 	ld hl, local_filename
-	call str_to_upper
 	call str_len
 	jp send_file_source_prompt_loop
 
 
 .send_file_got_source
+	
+	; copy local_filename to filename, convert to UPPERCASE, get its length, then prompt for save name
+	ld hl, local_filename
+	ld de, filename
+	ld bc, filename_length + 1
+	ldir
+	
+	ld hl, filename
+	call str_to_upper
+	call str_len
 	
 	ld hl, window_dialog_begin
 	oz (GN_Sop)
@@ -1357,7 +1372,7 @@ include "vdap.def"
 	ld hl, file_created
 	call print_vdap_date_time
 	
-	ld hl, local_filename
+	ld hl, filename
 	call str_len
 
 .send_file_dest_prompt_loop
@@ -1369,8 +1384,8 @@ include "vdap.def"
 	
 	ld a, 1
 	ld b, 21	
-	ld hl, local_filename
-	ld de, local_filename
+	ld hl, filename
+	ld de, filename
 	oz (GN_Sip)
 	
 	call disable_cursor
@@ -1414,7 +1429,7 @@ include "vdap.def"
 	jr z, send_file_dest_prompt_error
 	
 	; validate the filename
-	ld hl, local_filename
+	ld hl, filename
 	call validate_filename
 	
 	jr nc, send_file_dest_filename_ok
@@ -1425,8 +1440,8 @@ include "vdap.def"
 .send_file_dest_filename_ok
 	
 	; does the file already exit?
-	ld hl, local_filename
-	call get_file_info
+	ld hl, filename
+	call check_file_exists
 	
 	jr nc, send_file_check_overwrite
 	
@@ -1443,7 +1458,7 @@ include "vdap.def"
 	ld hl, overwrite
 	oz (GN_Sop)
 	
-	ld hl, local_filename
+	ld hl, filename
 	oz (GN_Sop)
 	
 	call get_cursor
@@ -1467,9 +1482,13 @@ include "vdap.def"
 .send_file_can_overwrite
 
 	; open the file on the drive for writing
-	ld hl, local_filename
 	ld a, VDAP_OPW
-	call send_command_string
+	ld hl, filename
+	
+	ld bc, (file_modified + 2) ; date
+	ld de, (file_modified + 0) ; time
+	
+	call send_command_string_dword
 	
 	call check_prompt_or_error
 	jp nz, send_file_open_error
@@ -1568,7 +1587,7 @@ include "vdap.def"
 	oz (OS_Esc)
 	
 	ld ix, (port_handle)
-	ld hl, local_filename
+	ld hl, filename
 	ld a, VDAP_CLF
 	call send_command_string
 	
@@ -1596,7 +1615,7 @@ include "vdap.def"
 	ld ix, (port_handle)
 	call flush_to_timeout
 	call sync
-	ld hl, local_filename
+	ld hl, filename
 	ld a, VDAP_CLF
 	call send_command_string
 	call check_prompt
@@ -1915,6 +1934,11 @@ include "vdap.def"
 ;      hl = pointer to string argument to send (NUL or CR terminated)
 ; out: Fc = 0 on success, Fc = 1 on timeout
 .send_command_string
+	call send_command_string_start
+	ret c
+	jr send_cr
+
+.send_command_string_start
 	call send_byte
 	ret c
 	
@@ -1926,14 +1950,70 @@ include "vdap.def"
 	
 	ld a, (hl)
 	or a
-	jr z, send_cr
+	ret z
 	cp CR
-	jr z, send_cr
+	ret z
 	
 	inc hl
 	call send_byte
 	ret c
 	jr send_command_string_loop
+
+; send a command string and a word argument
+; in:  a = command to send
+;      hl = pointer to string argument to send (NUL or CR terminated)
+;      de = word value to send
+; out: Fc = 0 on success, Fc = 1 on timeout
+.send_command_string_word
+	call send_command_string_start
+	ret c
+	
+	ld a, ' '		
+	call send_byte
+	ret c
+	
+	ld a, d
+	call send_byte
+	ret c
+	
+	ld a, e
+	call send_byte
+	ret c
+	
+	jr send_cr
+
+; send a command string and a dword argument
+; in:  a = command to send
+;      hl = pointer to string argument to send (NUL or CR terminated)
+;      bcde = dword value to send
+; out: Fc = 0 on success, Fc = 1 on timeout
+.send_command_string_dword
+	push bc
+	call send_command_string_start
+	pop hl
+	ret c
+	
+	ld a, ' '		
+	call send_byte
+	ret c
+
+	ld a, h
+	call send_byte
+	ret c
+	
+	ld a, l
+	call send_byte
+	ret c
+	
+	ld a, d
+	call send_byte
+	ret c
+	
+	ld a, e
+	call send_byte
+	ret c
+	
+	jr send_cr
 
 ; send a command dword
 ; in:  a = command to send
@@ -2719,11 +2799,83 @@ include "vdap.def"
 	jp dir
 
 
+; checks if a file exists
+; in:  hl = pointer to filename
+.check_file_exists
+
+	push hl
+	call sync
+	pop hl
+	
+	ret c
+	ret nz
+	
+	; get the file size
+	
+	ld a, VDAP_DIR
+	push hl
+	call send_command_string
+	pop hl
+	
+	; now we should get the original filename followed by a space
+	call get_byte
+	jp c, check_file_exists_comm_error
+	cp CR
+	jr nz, check_file_exists_space_skip_cr
+	
+.check_file_exists_space
+	call get_byte
+	jp c, check_file_exists_comm_error
+.check_file_exists_space_skip_cr
+	cp ' '
+	jr z, check_file_exists_got_name
+	cp (hl)
+	inc hl
+	jp nz, check_file_exists_fn_error
+	jr check_file_exists_space
+
+.check_file_exists_got_name
+	
+	; next four bytes are the file size
+	ld b, 4
+
+.check_file_exists_size_loop
+	push bc
+	call get_byte
+	pop bc
+	ret c
+	djnz check_file_exists_size_loop
+	
+	ld a, CR
+	call check_byte
+	ret c
+	jp nz, flush_to_cr
+	
+	call check_prompt
+	ret c
+	jp flush_to_cr
+
+.check_file_exists_fn_error
+	; error is filename related (e.g. bad name)
+	xor a
+	inc a
+	; fall-through
+	
+.check_file_exists_comm_error
+	; error is communications-related (e.g. drive timed out)
+	push af
+	call flush_to_timeout
+	pop af
+	ret
+
 ; gets information about a file
 ; in:  hl = pointer to filename
 .get_file_info
 
+	ld de, file_size
+
 	push hl
+	push de
 	
 	; clear the file size and modification fields
 	ld hl, file_size
@@ -2733,6 +2885,8 @@ include "vdap.def"
 	ldir
 	
 	call sync
+		
+	pop de
 	pop hl
 	
 	ret c
@@ -2767,7 +2921,6 @@ include "vdap.def"
 	pop hl
 
 	; next four bytes are the file size
-	ld de, file_size
 	ld b, 4
 
 .get_file_info_size_loop
@@ -2837,11 +2990,21 @@ include "vdap.def"
 	; next two bytes are the file access date
 	call get_byte
 	ret c
+	ld (de), a
+	inc de
+	
 	call get_byte
 	ret c
+	ld (de), a
+	inc de
+	
+	xor a
+	ld (de), a
+	inc de
+	ld (de), a
+	inc de
 	
 	; next four bytes are the file modification date
-	ld de, file_modified
 	ld b, 4
 
 .get_file_info_modified_loop
