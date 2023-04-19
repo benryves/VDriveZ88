@@ -1491,9 +1491,17 @@ include "vdap.def"
 	call send_command_string_dword
 	
 	call check_prompt_or_error
-	jp nz, send_file_open_error
+	jp nz, send_file_error
 	
-	; file_size has been overwitten by size of file on disk
+	; seek back to the start of the file
+	
+	ld a, VDAP_SEK
+	ld hl, 0
+	ld de, 0
+	call send_command_dword
+	
+	call check_prompt_or_error
+	jp nz, send_file_error
 	
 	; recover the size of the local file
 	ld ix, (file_handle)
@@ -1527,7 +1535,7 @@ include "vdap.def"
 	; show progress
 	ld a, 17
 	ld (cursor_x), a
-	ld a, 3
+	ld a, 1
 	ld (cursor_y), a
 	call goto_cursor
 	
