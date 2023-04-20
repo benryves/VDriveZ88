@@ -1326,10 +1326,13 @@ include "vdap.def"
 	; copy local_filename to filename, convert to UPPERCASE, get its length, then prompt for save name
 	ld hl, local_filename
 	ld de, filename
+	ld a, 'f'
+	ld (de), a
+	inc de
 	ld bc, filename_length + 1
 	ldir
 	
-	ld hl, filename
+	ld hl, filename + 1
 	call str_to_upper
 	call str_len
 	
@@ -1372,7 +1375,7 @@ include "vdap.def"
 	ld hl, file_created
 	call print_vdap_date_time
 	
-	ld hl, filename
+	ld hl, filename + 1
 	call str_len
 
 .send_file_dest_prompt_loop
@@ -1384,8 +1387,8 @@ include "vdap.def"
 	
 	ld a, 1
 	ld b, 21	
-	ld hl, filename
-	ld de, filename
+	ld hl, filename + 1
+	ld de, filename + 1
 	oz (GN_Sip)
 	
 	call disable_cursor
@@ -1429,7 +1432,7 @@ include "vdap.def"
 	jr z, send_file_dest_prompt_error
 	
 	; validate the filename
-	ld hl, filename
+	ld hl, filename + 1
 	call validate_filename
 	
 	jr nc, send_file_dest_filename_ok
@@ -1440,7 +1443,7 @@ include "vdap.def"
 .send_file_dest_filename_ok
 	
 	; does the file already exit?
-	ld hl, filename
+	ld hl, filename + 1
 	call check_file_exists
 	
 	jr nc, send_file_check_overwrite
@@ -1458,7 +1461,7 @@ include "vdap.def"
 	ld hl, overwrite
 	oz (GN_Sop)
 	
-	ld hl, filename
+	ld hl, filename + 1
 	oz (GN_Sop)
 	
 	call get_cursor
@@ -1483,7 +1486,7 @@ include "vdap.def"
 
 	; open the file on the drive for writing
 	ld a, VDAP_OPW
-	ld hl, filename
+	ld hl, filename + 1
 	
 	ld bc, (file_modified + 2) ; date
 	ld de, (file_modified + 0) ; time
@@ -1595,7 +1598,7 @@ include "vdap.def"
 	oz (OS_Esc)
 	
 	ld ix, (port_handle)
-	ld hl, filename
+	ld hl, filename + 1
 	ld a, VDAP_CLF
 	call send_command_string
 	
@@ -1623,7 +1626,7 @@ include "vdap.def"
 	ld ix, (port_handle)
 	call flush_to_timeout
 	call sync
-	ld hl, filename
+	ld hl, filename + 1
 	ld a, VDAP_CLF
 	call send_command_string
 	call check_prompt
