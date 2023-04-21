@@ -1458,11 +1458,17 @@ include "vdap.def"
 
 .send_file_exit
 	
-	ld ix, (file_handle)
+	ld hl, (file_handle)
+	ld a, l
+	or h
+	jr z, send_file_exit_file_already_closed
+	push hl
+	pop ix
 	oz (GN_Cl)
 	ld hl, 0
 	ld (file_handle), hl
-	
+
+.send_file_exit_file_already_closed
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	
@@ -1626,8 +1632,13 @@ include "vdap.def"
 	oz (OS_Mv)
 	jp c, send_file_error
 	
+	ld a, SC_BIT
+	oz (OS_Esc)
+	ld a, RC_ESC
+	jr c, send_file_error
+	
 	call check_prompt_or_error
-	jp nz, send_file_error
+	jr nz, send_file_error
 	
 	call update_transfer_counters
 	
@@ -1649,11 +1660,32 @@ include "vdap.def"
 	call check_prompt_or_error
 	jr nz, send_file_error
 	
+	; did we successfully add the new file?
+	ld hl, filename + 1
+	call check_file_exists
+	
+	ld a, RC_TIME
+	jr c, send_file_open_error
+	jr z, send_file_succeeded
+	
+	; file not found
+	ld a, RC_ONF
+	oz (GN_Err)
+	
 	ld hl, window_dialog_close
 	oz (GN_Sop)
-	
 	jp dir_list_start_from_current
 
+.send_file_succeeded
+	
+	call dir_add_filename
+	ld de, (dir_working)
+	ld (dir_selected), de
+	
+	; redraw
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start
 
 .send_file_error
 	push af
