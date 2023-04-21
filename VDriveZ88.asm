@@ -1729,6 +1729,10 @@ include "vdap.def"
 	ld a, RC_ESC
 	jr z, rename_file_prompt_error
 	
+	; ensure the new name is uppercase
+	ld hl, local_filename
+	call str_to_upper
+	
 	; has the file name changed?
 	ld hl, filename + 1
 	ld de, local_filename
@@ -1776,10 +1780,35 @@ include "vdap.def"
 	jr c, rename_file_error_after_rename
 	
 	call check_prompt_or_error
-	jr c, rename_file_exit_after_rename
+	jr c, rename_file_error_after_rename
+	
+	; does the new file exist?
+	ld hl, local_filename
+	call check_file_exists
+	
+	ld a, RC_TIME
+	jr c, rename_file_error_after_rename
+	
+	ld a, RC_ONF
+	jr nz, rename_file_error_after_rename
 	
 	; we're OK!
-	jr rename_file_exit_after_rename
+	
+	; rename the file in the directory listing
+	ld de, (dir_selected)
+	call dir_set_index
+	
+	ld de, 4 + 1
+	add hl, de
+	ex de, hl
+	
+	ld hl, local_filename
+	ld bc, filename_length + 1
+	ldir
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start
 
 .rename_file_error
 	
