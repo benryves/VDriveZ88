@@ -312,6 +312,44 @@ include "vdap.def"
 	ld a, dir_top
 	ld (cursor_y), a
 	
+.dir_list_selection_on_screen_check
+	; ensure that the selected index is on-screen
+	ld hl, (dir_selected)
+	ld de, (dir_offset)
+	or a
+	sbc hl, de
+	
+	bit 7, h
+	jr nz, dir_list_selection_off_top
+	
+	ld de, dir_cols * dir_rows
+	
+	or a
+	sbc hl, de
+	jr c, dir_list_selection_on_screen
+
+.dir_list_selection_off_bottom
+
+	; increment the offset
+	ld hl, (dir_offset)
+	ld de, +dir_cols
+	add hl, de
+	ld (dir_offset), hl
+	
+	jr dir_list_selection_on_screen_check
+
+.dir_list_selection_off_top
+	
+	; decrement the offset
+	ld hl, (dir_offset)
+	ld de, -dir_cols
+	add hl, de
+	ld (dir_offset), hl
+	
+	jr dir_list_selection_on_screen_check
+	
+.dir_list_selection_on_screen
+	
 	ld de, (dir_offset)
 	ld (dir_working), de
 	call dir_set_index
@@ -363,6 +401,9 @@ include "vdap.def"
 	
 	cp 'R' - '@' ; <>R
 	jp z, rename_file
+	
+	cp DEL
+	jp z, delete_file
 	
 	jr key_loop
 
@@ -1794,18 +1835,21 @@ include "vdap.def"
 	
 	; we're OK!
 	
-	; rename the file in the directory listing
+	; remove the old directory entry
 	ld de, (dir_selected)
-	call dir_set_index
+	call dir_remove_index
 	
-	ld de, 4 + 1
-	add hl, de
-	ex de, hl
-	
+	; add the new one
 	ld hl, local_filename
+	ld de, filename + 1
 	ld bc, filename_length + 1
 	ldir
 	
+	call dir_add_filename
+	ld de, (dir_working)
+	ld (dir_selected), de
+	
+	; redraw
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	jp dir_list_start
@@ -1830,6 +1874,28 @@ include "vdap.def"
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	jp dir_list_start_from_current
+
+.delete_file
+
+	; we can't do anything if we don't have any files
+	ld hl, (dir_count)
+	ld a, l
+	or h
+	jp z, key_loop
+
+	ld de, (dir_selected)
+	call dir_remove_index
+	
+	ld hl, (dir_selected)
+	ld de, (dir_count)
+	or a
+	sbc hl, de
+	
+	jp c, dir_list_start
+	
+	dec de
+	ld (dir_selected), de
+	jp dir_list_start
 
 .appl_exit
 
@@ -2698,6 +2764,24 @@ include "vdap.def"
 	
 .filename_not_dir
 	
+	call dir_add_filename
+
+	; fetch next filename
+	jp dir_loop
+
+.dir_end
+	
+	call dir_reset_index
+	
+	call flush_to_cr
+	
+	xor a
+	ret
+
+
+; adds (filename) to the directory listing
+.dir_add_filename
+	
 	; allocate memory to store the filename
 	
 	xor a
@@ -2733,6 +2817,8 @@ include "vdap.def"
 	ldir
 	
 	; where in the linked list are we going to store the filename?
+	ld de, 0
+	ld (dir_working), de
 	
 	ld de, (dir_count)
 	ld a, e
@@ -2805,6 +2891,10 @@ include "vdap.def"
 .dir_sort_loop
 	
 	; move to the next record
+	ld de, (dir_working)
+	inc de
+	ld (dir_working), de
+	
 	ld bc, (dir_list_ptr + 0)
 	ld hl, (dir_list_ptr + 2)
 	
@@ -2892,19 +2982,90 @@ include "vdap.def"
 	ld hl, (dir_count)
 	inc hl
 	ld (dir_count), hl
-
-	; fetch next filename
-	jp dir_loop
-
-.dir_end
 	
-	call dir_reset_index
-	
-	call flush_to_cr
-	
-	xor a
 	ret
 
+; remove the directory entry at a specific index
+.dir_remove_index
+	
+	; what comes after the current node?
+	push de
+	call dir_set_index
+	pop de
+	
+	ld c, (hl)
+	inc hl
+	ld b, (hl)
+	inc hl
+	
+	ld (dir_list_new + 0), bc
+	
+	ld c, (hl)
+	inc hl
+	ld b, (hl)
+	inc hl
+	
+	ld (dir_list_new + 2), bc
+	
+	ld bc, -4
+	add hl, bc
+	
+	; hl -> current entry's memory
+	
+	; free the memory
+	ld ix, (memory_pool)
+	ld a, (dir_list_ptr + 1)
+	ld bc, 32
+	oz (OS_Mfr)
+	
+	ld a, d
+	or e
+	jr z, dir_remove_head
+
+	; we're not removing the head, so work back to the previous entry
+	dec de
+	call dir_set_index
+	
+	; store the new pointer as the next pointer of the previous entry
+	ld bc, (dir_list_new + 0)
+	
+	ld (hl), c
+	inc hl
+	ld (hl), b
+	inc hl
+	
+	ld bc, (dir_list_new + 2)
+	ld (hl), c
+	inc hl
+	ld (hl), b
+	inc hl
+	
+	ld bc, (dir_list_new + 0)
+	ld hl, (dir_list_new + 2)
+	
+	jr dir_removed_entry
+
+.dir_remove_head
+
+	; point the head directly at the node that followed the old head
+	ld bc, (dir_list_new + 0)
+	ld hl, (dir_list_new + 2)
+	
+	ld (dir_list + 0), bc
+	ld (dir_list + 2), hl
+
+.dir_removed_entry
+	
+	; update the current pointer
+	ld (dir_list_ptr + 0), bc
+	ld (dir_list_ptr + 2), hl
+	
+	; update the directory item count
+	ld de, (dir_count)
+	dec de
+	ld (dir_count), de
+
+	ret
 
 ; resets the directory listing index to the first item
 .dir_reset_index
