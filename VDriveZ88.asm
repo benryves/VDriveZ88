@@ -361,6 +361,9 @@ include "vdap.def"
 	cp 'S' - '@' ; <>S
 	jp z, send_file
 	
+	cp 'R' - '@' ; <>R
+	jp z, rename_file
+	
 	jr key_loop
 
 .key_error
@@ -1641,6 +1644,164 @@ include "vdap.def"
 	oz (GN_Err)
 	jp send_file_exit
 
+.rename_file
+
+	; we can't do anything if we don't have any files
+	ld hl, (dir_count)
+	ld a, l
+	or h
+	jp z, key_loop
+	
+	; copy the selected (old) filename from the directory listing
+	ld de, (dir_selected)
+	call dir_set_index
+	
+	ld bc, 4
+	add hl, bc
+	
+	ld de, filename
+	ld bc, filename_length + 2
+	ldir
+	
+	; initalise the new file name
+	ld hl, filename + 1
+	ld de, local_filename
+	ld bc, filename_length + 1
+	ldir
+	
+	; display the dialog
+	ld hl, window_dialog_begin
+	oz (GN_Sop)
+	
+	ld hl, rename_title
+	oz (GN_Sop)
+	
+	ld hl, window_dialog_end
+	oz (GN_Sop)
+	
+	; show the old file name
+	ld hl, rename_prompt_old
+	oz (GN_Sop)
+	
+	ld hl, filename + 1
+	oz (GN_Sop)
+
+.rename_file_prompt_loop_end
+	
+	ld hl, local_filename
+	call str_len
+
+.rename_file_prompt_loop
+
+	; prompt for the new file name
+	ld hl, rename_prompt_new
+	oz (GN_Sop)
+	
+	call enable_cursor
+
+	ld a, 1
+	ld b, 21	
+	ld de, local_filename
+	oz (GN_Sip)
+	
+	call disable_cursor
+	
+	jr nc, rename_file_prompt_ok
+
+.rename_file_prompt_error
+	
+	cp RC_QUIT
+	jp z, appl_exit
+	
+	cp RC_SUSP
+	jp z, rename_file_prompt_loop
+	
+	cp RC_DRAW
+	jp z, rename_file
+	
+	cp RC_ESC
+	jp z, rename_file_exit
+	
+	jp appl_exit
+
+.rename_file_prompt_ok
+	cp ESC
+	ld a, RC_ESC
+	jr z, rename_file_prompt_error
+	
+	; has the file name changed?
+	ld hl, filename + 1
+	ld de, local_filename
+	
+	call str_cmp
+	jp z, rename_file_exit
+	
+	; is the new name valid?
+	ld hl, local_filename
+	call validate_filename
+	
+	jr nc, rename_file_new_name_ok
+	
+	oz (GN_Err)
+	
+	jr rename_file_prompt_loop_end
+
+.rename_file_new_name_ok
+
+	; does the new name already exist?
+	call check_file_exists
+	
+	; error getting file details
+	ld a, RC_TIME
+	jr c, rename_file_error
+	
+	jr nz, rename_file_not_duplicate
+	
+	; file already exists!
+	; VDAP firmware allows you to create two files
+	; with the same name this way, so try to prevent that
+	ld a, RC_EXIS
+	oz (GN_Err)
+	
+	jr rename_file_prompt_loop_end
+
+.rename_file_not_duplicate
+	
+	ld hl, filename + 1
+	ld de, local_filename
+	ld a, VDAP_REN
+	call send_command_string_string
+	
+	ld a, RC_TIME
+	jr c, rename_file_error_after_rename
+	
+	call check_prompt_or_error
+	jr c, rename_file_exit_after_rename
+	
+	; we're OK!
+	jr rename_file_exit_after_rename
+
+.rename_file_error
+	
+	oz (GN_Err)
+	call flush_to_timeout
+
+.rename_file_exit
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start
+
+.rename_file_error_after_rename
+
+	oz (GN_Err)
+	call flush_to_timeout
+
+.rename_file_exit_after_rename
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start_from_current
+
 .appl_exit
 
 	; make sure we're not still busy
@@ -1952,6 +2113,8 @@ include "vdap.def"
 .send_command_string_start
 	call send_byte
 	ret c
+
+.send_command_string_space
 	
 	ld a, ' '		
 	call send_byte
@@ -2022,6 +2185,22 @@ include "vdap.def"
 	
 	ld a, e
 	call send_byte
+	ret c
+	
+	jr send_cr
+
+; send a command string and a dword argument
+; in:  a = command to send
+;      hl = pointer to first string argument to send (NUL or CR terminated)
+;      de = pointer to second string argument to send (NUL or CR terminated)
+; out: Fc = 0 on success, Fc = 1 on timeout
+.send_command_string_string
+	
+	call send_command_string_start	
+	ret c
+	
+	ex de, hl
+	call send_command_string_space
 	ret c
 	
 	jr send_cr
@@ -2118,6 +2297,10 @@ include "vdap.def"
 	ld e, a
 	jr c, check_prompt_error_timeout
 	
+	; flush any leading CR
+	cp CR
+	jr z, check_prompt_or_error
+	
 	cp '>'
 	jr z, check_prompt_or_error_prompt
 	
@@ -2176,7 +2359,7 @@ include "vdap.def"
 	ld a, CR
 	call check_byte
 	jr c, check_prompt_error_timeout
-	xor a
+	ld a, RC_SNTX
 	ret
 
 .check_prompt_error_timeout
@@ -2184,19 +2367,6 @@ include "vdap.def"
 	or a
 	scf
 	ret
-
-.check_prompt_error_codes
-	defm "BC", RC_SNTX ; BC = Bad Command
-	defm "CF", RC_FAIL ; CF = Command Failed
-	defm "DF", RC_ROOM ; DF = Disk Full
-	defm "FI", RC_FAIL ; FI = Invalid
-	defm "FN", RC_IVF  ; FN = Filename Invalid
-	defm "FO", RC_USE  ; FO = File Open
-	defm "RO", RC_WP   ; RO = Read Only
-	defm "ND", RC_USE  ; ND = No Disk
-	defm "NE", RC_USE  ; NE = Not Empty
-	defm "NU", RC_ONF  ; NU = No Upgrade
-.check_prompt_error_codes_end
 
 ; checks for a particular response to a command
 ; in:  a = command response to check for
@@ -2242,6 +2412,19 @@ include "vdap.def"
 .flush_to_timeout_timeout
 	pop af
 	ret
+
+.check_prompt_error_codes
+	defm "BC", RC_SNTX ; BC = Bad Command
+	defm "CF", RC_FAIL ; CF = Command Failed
+	defm "DF", RC_ROOM ; DF = Disk Full
+	defm "FI", RC_FAIL ; FI = Invalid
+	defm "FN", RC_IVF  ; FN = Filename Invalid
+	defm "FO", RC_USE  ; FO = File Open
+	defm "RO", RC_WP   ; RO = Read Only
+	defm "ND", RC_USE  ; ND = No Disk
+	defm "NE", RC_USE  ; NE = Not Empty
+	defm "NU", RC_ONF  ; NU = No Upgrade
+.check_prompt_error_codes_end
 
 .print_hex_nybble
 	and $0F
@@ -3439,6 +3622,20 @@ include "vdap.def"
 	defm SOH, "2C", 254
 	defb 0
 
+.rename_title
+	defm "Rename", 0
+
+.rename_prompt_old
+	defm SOH, "3@", 32 + 1, 32 + 1
+	defm "Name          : "
+	defb 0
+
+.rename_prompt_new
+	defm SOH, "3@", 32 + 1, 32 + 3
+	defm "New name      : "
+	defm SOH, "2C", 254
+	defb 0
+
 .str_cmp
 	push hl
 	push de
@@ -3574,6 +3771,10 @@ include "vdap.def"
 	
 	inc c
 	djnz validate_filename_extension_loop
+	
+	; too long
+	scf
+	ret
 
 .validate_filename_check_empty
 	ld a, c
