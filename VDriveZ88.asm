@@ -16,7 +16,7 @@ include "vdap.def"
 
 ; General constants
 
-	defc port_timeout = 10
+	defc port_timeout = 25
 	defc filename_length = 20
 	
 	defc dir_item_width = 14
@@ -788,30 +788,7 @@ include "vdap.def"
 
 .dir_copy_file_show_info
 
-	; show file size
-	ld hl, prop_size
-	oz (GN_Sop)
-	
-	ld hl, file_size
-	ld de, 0
-	ld ix, (screen_handle)
-	xor a
-	
-	oz (GN_Pdn)
-	
-	; show file date modified
-	ld hl, prop_modified
-	oz (GN_Sop)
-	
-	ld hl, file_modified
-	call print_vdap_date_time
-	
-	; show file date created
-	ld hl, prop_created
-	oz (GN_Sop)
-	
-	ld hl, file_created
-	call print_vdap_date_time
+	call dialog_show_size_and_dates
 	
 	; get the length of the local filename
 	ld hl, local_filename
@@ -1394,30 +1371,8 @@ include "vdap.def"
 	ld hl, window_dialog_end
 	oz (GN_Sop)
 
-	; show file size
-	ld hl, prop_size
-	oz (GN_Sop)
-	
-	ld hl, file_size
-	ld de, 0
-	ld ix, (screen_handle)
-	xor a
-	
-	oz (GN_Pdn)
-	
-	; show file date modified
-	ld hl, prop_modified
-	oz (GN_Sop)
-	
-	ld hl, file_modified
-	call print_vdap_date_time
-	
-	; show file date created
-	ld hl, prop_created
-	oz (GN_Sop)
-	
-	ld hl, file_created
-	call print_vdap_date_time
+	; show sizes and dates
+	call dialog_show_size_and_dates
 	
 	ld hl, filename + 1
 	call str_len
@@ -1916,6 +1871,76 @@ include "vdap.def"
 	jp z, key_loop
 
 	ld de, (dir_selected)
+	call dir_set_index
+	
+	ld de, 4
+	add hl, de
+	
+	ld de, filename
+	ld bc, filename_length + 2
+	ldir
+	
+	ld hl, filename + 1
+	call get_file_info
+	
+	jr nc, delete_show_dialog
+	
+	ld a, RC_TIME
+	oz (GN_Err)
+	jp dir_list_start
+
+
+.delete_show_dialog
+
+	ld hl, window_dialog_begin
+	oz (GN_Sop)
+	ld hl, delete_title
+	oz (GN_Sop)
+	ld hl, window_dialog_end
+	oz (GN_Sop)
+	
+	; show size (if a file) and dates
+	ld a, (filename)
+	cp 'f'
+	push af
+	call z, dialog_show_size_and_dates
+	pop af
+	call nz, dialog_show_dates
+	
+	; prompt for deletion
+	ld hl, delete_prompt
+	oz (GN_Sop)
+	
+	ld a, 'N'
+	call confirm
+	
+	jp c, appl_exit
+	
+	cp 'Y'
+	jp nz, delete_file_exit
+	
+	; delete the file/directory
+	ld a, (filename)
+	add a, VDAP_DLF - 'f' ; DLF = $07, DLD = $05 - perfect!
+	
+	ld hl, filename + 1
+	
+	call send_command_string_string
+	jr c, delete_comm_error
+	
+	; check for success or failure
+	call check_prompt_or_error
+	jr c, delete_comm_error
+	
+	jr z, delete_successful
+	
+	oz (GN_Err)
+	jr delete_file_exit
+
+.delete_successful
+
+	call flush_to_timeout
+	ld de, (dir_selected)
 	call dir_remove_index
 	
 	ld hl, (dir_selected)
@@ -1923,11 +1948,29 @@ include "vdap.def"
 	or a
 	sbc hl, de
 	
-	jp c, dir_list_start
+	jr c, delete_file_exit
 	
 	dec de
 	ld (dir_selected), de
+	
+
+.delete_file_exit
+	ld hl, window_dialog_close
+	oz (GN_Sop)
 	jp dir_list_start
+
+.delete_comm_error
+	call flush_to_timeout
+	
+	ld a, RC_TIME
+	oz (GN_Err)
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	
+	; we're not sure what happened here so restart from scratch
+	jp dir_list_start_from_current
+
 
 .appl_exit
 
@@ -3857,6 +3900,48 @@ include "vdap.def"
 	defm "New name      : "
 	defm SOH, "2C", 254
 	defb 0
+
+.delete_title
+	defm "Erase", 0
+
+.delete_prompt
+	defm SOH, "3@", 32 + 1, 32 + 5
+	defm "Erase         : "
+	defm SOH, "2C", 254
+	defb 0
+
+.dialog_show_size_and_dates
+	
+	push ix
+	; show file size
+	ld hl, prop_size
+	oz (GN_Sop)
+	
+	ld hl, file_size
+	ld de, 0
+	ld ix, (screen_handle)
+	xor a
+	
+	oz (GN_Pdn)
+	pop ix
+	
+.dialog_show_dates
+	
+	; show file date modified
+	ld hl, prop_modified
+	oz (GN_Sop)
+	
+	ld hl, file_modified
+	call print_vdap_date_time
+	
+	; show file date created
+	ld hl, prop_created
+	oz (GN_Sop)
+	
+	ld hl, file_created
+	call print_vdap_date_time
+	
+	ret
 
 .str_cmp
 	push hl
