@@ -1075,12 +1075,7 @@ include "vdap.def"
 	jr z, copy_file_error_no_partial
 	
 	; close the file
-	push hl
-	pop ix
-	oz (GN_Cl)
-	
-	ld hl, 0
-	ld (file_handle), hl
+	call close_file_handle
 
 	; delete the partial file
 	ld hl, local_filename
@@ -1112,14 +1107,7 @@ include "vdap.def"
 	or l
 	jr z, copy_file_handle_closed
 	
-	push hl
-	pop ix
-	
-	oz (GN_Cl)
-	
-	ld hl, 0
-	ld (file_handle), hl
-	
+	call close_file_handle
 	; if we had a file handle, then we must have copied a file.
 	
 	; update the file modified time
@@ -1413,17 +1401,8 @@ include "vdap.def"
 
 .send_file_exit
 	
-	ld hl, (file_handle)
-	ld a, l
-	or h
-	jr z, send_file_exit_file_already_closed
-	push hl
-	pop ix
-	oz (GN_Cl)
-	ld hl, 0
-	ld (file_handle), hl
-
-.send_file_exit_file_already_closed
+	call close_file_handle
+	
 	ld hl, window_dialog_close
 	oz (GN_Sop)
 	
@@ -1632,6 +1611,8 @@ include "vdap.def"
 	jp dir_list_start_from_current
 
 .send_file_succeeded
+
+	call close_file_handle
 	
 	call dir_add_filename
 	ld de, (dir_working)
@@ -2016,50 +1997,14 @@ include "vdap.def"
 .path_not_allocated
 
 	; close any open file handles
-	ld hl, (file_handle)
-	ld a, h
-	or l
-	jr z, file_not_opened
-	
-	push hl
-	pop ix
-	
-	oz (GN_Cl)
-	ld hl, 0
-	ld (file_handle), hl
-
-.file_not_opened
+	call close_file_handle
 
 	; close the open screen handle
-	ld hl, (screen_handle)
-	ld a, h
-	or l
-	jr z, screen_not_opened
-	
-	push hl
-	pop ix
-	
-	oz (GN_Cl)
-	ld hl, 0
-	ld (screen_handle), hl
-
-.screen_not_opened
+	call close_screen_handle
 
 	; close the open port handle
-	ld hl, (port_handle)
-	ld a, h
-	or l
-	jr z, port_not_opened
+	call close_port_handle
 	
-	push hl
-	pop ix
-	
-	oz (GN_Cl)
-	ld hl, 0
-	ld (port_handle), hl
-
-.port_not_opened
-
 	; free memory pool
 	ld ix, (memory_pool)
 	oz (OS_Mcl)
@@ -2070,6 +2015,55 @@ include "vdap.def"
 	; quit popdown with no error
 	xor a
 	oz (OS_Bye)
+
+.close_port_handle
+	push hl
+	ld hl, port_handle
+	jr close_handle
+	
+.close_screen_handle
+	push hl
+	ld hl, screen_handle
+	jr close_handle
+	
+.close_file_handle
+	push hl
+	ld hl, file_handle
+	; fall-through
+
+.close_handle
+	push ix
+	push de
+	push hl
+	
+	ld e, (hl)
+	inc hl
+	ld d, (hl)
+	
+	ld a, d
+	or e
+	jr z, handle_not_opened
+	
+	push de
+	pop ix
+	
+	oz (GN_Cl)
+	
+	pop hl
+	push hl
+	
+	ld (hl), 0
+	inc hl
+	ld (hl), 0
+	dec hl
+
+.handle_not_opened
+	pop hl
+	pop de
+	pop ix
+	
+	pop hl
+	ret
 
 .drive_init
 	
@@ -2147,9 +2141,7 @@ include "vdap.def"
 
 .drive_deinit
 	; close the port handle
-	ld ix, (port_handle)
-	oz (GN_Cl)
-	ret
+	jp close_port_handle
 
 .screen_name
 	defm ":SCR.0", 0
