@@ -108,9 +108,9 @@ include "vdap.def"
 	defb appl_bank
 	defw commands_dor
 	defb appl_bank
-	defw appl_dor                       ; no help
+	defw help_dor
 	defb appl_bank
-	defw appl_dor                       ; no tokens
+	defw tokens_dor
 	defb appl_bank
 .inhlpend
 	defb 'N'                            ; key to name section
@@ -125,7 +125,10 @@ include "vdap.def"
 	defb 0                              ; start marker
 .topic_commands
 	defb topic_end - topic_commands     ; length byte
-	defm "Commands", 0                  ; topic name
+	defm "Commands"                     ; topic name
+	defb >(help_commands - help_dor)    ; help offset msb
+	defb <(help_commands - help_dor)    ; help offset lsb
+	defb TPCF_HELP                      ; topic attributes
 	defb topic_end - topic_commands     ; length byte
 .topic_end
 	defb 0                              ; end marker
@@ -137,7 +140,10 @@ include "vdap.def"
 	defb cmd_rename_end - cmd_rename    ; length byte
 	defb 'R'                            ; command code
 	defm "RE", 0                        ; keyboard sequence
-	defm "Rename", 0                    ; command name
+	defm "Rename"                       ; command name
+	defb >(help_rename - help_dor)      ; help offset msb
+	defb <(help_rename - help_dor)      ; help offset lsb
+	defb CMDF_HELP                      ; command attributes
 	defb cmd_rename_end - cmd_rename    ; length byte
 .cmd_rename_end
 
@@ -145,7 +151,10 @@ include "vdap.def"
 	defb cmd_erase_end - cmd_erase      ; length byte
 	defb 'E'                            ; command code
 	defm "ER", 0                        ; keyboard sequence
-	defm "Erase", 0                     ; command name
+	defm "Erase"                        ; command name
+	defb >(help_erase - help_dor)       ; help offset msb
+	defb <(help_erase - help_dor)       ; help offset lsb
+	defb CMDF_HELP                      ; command attributes
 	defb cmd_erase_end - cmd_erase      ; length byte
 .cmd_erase_end
 
@@ -153,7 +162,10 @@ include "vdap.def"
 	defb cmd_create_end - cmd_create    ; length byte
 	defb 'C'                            ; command code
 	defm "CD", 0                        ; keyboard sequence
-	defm "Create Directory", 0          ; command name
+	defm "Create Directory"             ; command name
+	defb >(help_create - help_dor)      ; help offset msb
+	defb <(help_create - help_dor)      ; help offset lsb
+	defb CMDF_HELP                      ; command attributes
 	defb cmd_create_end - cmd_create    ; length byte
 .cmd_create_end
 
@@ -161,8 +173,10 @@ include "vdap.def"
 	defb cmd_up_dir_end - cmd_up_dir    ; length byte
 	defb IN_SUP                         ; command code
 	defm IN_SUP, 0                      ; keyboard sequence
-	defm "Up Directory", 0              ; command name
-	defb CMDF_COLUMN                    ; command attribute
+	defm "Up Directory"                 ; command name
+	defb >(help_up_dir - help_dor)      ; help offset msb
+	defb <(help_up_dir - help_dor)      ; help offset lsb
+	defb CMDF_COLUMN|CMDF_HELP          ; command attributes
 	defb cmd_up_dir_end - cmd_up_dir    ; length byte
 .cmd_up_dir_end
 
@@ -171,6 +185,9 @@ include "vdap.def"
 	defb IN_SDWN                        ; command code
 	defm IN_SDWN, 0                     ; keyboard sequence
 	defm "Down Directory", 0            ; command name
+	defb >(help_dwn_dir - help_dor)     ; help offset msb
+	defb <(help_dwn_dir - help_dor)     ; help offset lsb
+	defb CMDF_HELP                      ; command attributes
 	defb cmd_dwn_dir_end - cmd_dwn_dir  ; length byte
 .cmd_dwn_dir_end
 
@@ -210,8 +227,10 @@ include "vdap.def"
 	defb cmd_send_end - cmd_send        ; length byte
 	defb 'S'                            ; command code
 	defm "ES", 0                        ; keyboard sequence
-	defm "Send to Drive", 0             ; command name
-	defb CMDF_COLUMN                    ; command attribute
+	defm "Send to Drive"                ; command name
+	defb >(help_send - help_dor)        ; help offset msb
+	defb <(help_send - help_dor)        ; help offset lsb
+	defb CMDF_COLUMN|CMDF_HELP          ; command attributes
 	defb cmd_send_end - cmd_send        ; length byte
 .cmd_send_end
 
@@ -219,12 +238,97 @@ include "vdap.def"
 	defb cmd_fetch_end - cmd_fetch      ; length byte
 	defb 'F'                            ; command code
 	defm "EF", 0                        ; keyboard sequence
-	defm "Fetch from Drive", 0          ; command name
+	defm "Fetch from Drive"             ; command name
+	defb >(help_fetch - help_dor)       ; help offset msb
+	defb <(help_fetch - help_dor)       ; help offset lsb
+	defb CMDF_HELP                      ; command attributes
 	defb cmd_fetch_end - cmd_fetch      ; length byte
 .cmd_fetch_end
 
 	defb 1                              ; end of topic
 	defb 0                              ; end of all topics
+
+.help_dor
+	defm DEL
+	defm "Version 1.0", DEL
+	defm DEL
+	defm "Send files to and fetch files from a Vinculum", DEL
+	defm "USB host device such as the VDrive or VMusic.", DEL
+	defm DEL
+	defm "Ben Ryves 2023 - https://benryves.com/", 0
+
+.help_commands
+	defm "The current directory listing will be shown with directories", DEL
+	defm "at the top in small capitals (", SOH, "2+TDIRNAME", SOH, "2-T) and files underneath.", DEL
+	defm "You can move around the listing using the ", TOK_CURSOR_KEYS, " keys,", DEL
+	defm "enter directories or fetch files with the ", TOK_ENTER, " key,", DEL
+	defm "or erase files with the ", TOK_DEL, " key.", DEL
+	defm "Other operations can be accessed with the ", TOK_MENU, " key.", 0
+
+.help_rename
+	defm DEL
+	defm "Rename existing files or directories on the USB drive.", 0
+
+.help_erase
+	defm DEL
+	defm "Erase existing files or directories from the USB drive.", DEL
+	defm DEL
+	defm "Directories that contain other items cannot be erased,", DEL
+	defm "so make sure to empty them before erasing them.", DEL
+	defm DEL
+	defm "Files or directories can also be erased with the ", TOK_DEL, " key.", 0
+
+.help_create
+	defm DEL
+	defm "Create a new directory on the USB drive.", 0
+
+.help_up_dir
+	defm DEL
+	defm "Move up to the parent directory of the current directory.", 0
+
+.help_dwn_dir
+	defm DEL
+	defm "Move down into the highlighted child directory.", DEL
+	defm DEL
+	defm "You can also enter child directories by highlighting them", DEL
+	defm "and pressing the ", TOK_ENTER, " key.", 0
+
+.help_send
+	defm DEL
+	defm "Send a file from the Z88's file system to the", DEL
+	defm "current directory on the USB drive.", 0
+
+.help_fetch
+	defm DEL
+	defm "Fetch the highlighted file from the USB drive and save it", DEL
+	defm "on the Z88's file system.", DEL
+	defm DEL
+	defm "You can also fetch files by highlighting them and pressing", DEL
+	defm "the ", TOK_ENTER, " key.", 0
+
+.tokens_dor
+	defb (token_80 - tokens_list) / 2
+	defb (token_80 - tokens_list) / 2
+.tokens_list
+	defw token_80 - tokens_dor
+	defw token_81 - tokens_dor
+	defw token_82 - tokens_dor
+	defw token_83 - tokens_dor
+	defw tokens_end - tokens_dor
+.token_80
+	defm SOH, SD_ENT
+.token_81
+	defm SOH, SD_DEL
+.token_82
+	defm SOH, SD_ORGT, SOH, SD_OLFT, SOH, SD_OUP, SOH, SD_ODWN
+.token_83
+	defm SOH, SD_MNU
+.tokens_end
+
+defc TOK_ENTER       = $80
+defc TOK_DEL         = $81
+defc TOK_CURSOR_KEYS = $82
+defc TOK_MENU        = $83
 
 ; The main entry point
 
