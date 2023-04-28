@@ -30,7 +30,7 @@ include "vdap.def"
 
 ; Unsafe workspace variables
 
-	defc unsafe_ws = 142
+	defc unsafe_ws = 152
 	defc safe_ws = 0
 	
 	defc ram_vars = $1FFE - unsafe_ws
@@ -63,6 +63,12 @@ include "vdap.def"
 		data_transferred ds.b 4          ; general "data remaining" counter
 		data_remaining   ds.b 4          ; general "data remaining" counter
 		chunk_size       ds.w 2          ; when transferring data to/from the drive
+		old_pa_txb_size  ds.b 1          ; transmit baud rate is 1 or 2 bytes
+		old_pa_txb       ds.w 1          ; original transmit baud rate
+		old_pa_rxb_size  ds.b 1          ; receive baud rate is 1 or 2 bytes
+		old_pa_rxb       ds.w 1          ; original receive baud rate
+		old_pa_xon       ds.b 1          ; original xon/off state
+		old_pa_par       ds.b 1          ; original parity state
 		ram_vars_end     ds.b 1
 	}
 	
@@ -346,6 +352,33 @@ defc TOK_MENU        = $83
 	ld bc, unsafe_ws - 1
 	ldir
 	
+	; back up original panel settings
+	ld a, 2
+	ld bc, PA_Txb
+	ld de, old_pa_txb
+	oz (OS_Nq)
+	jr c, bye_error
+	ld (old_pa_txb_size), a
+	
+	ld a, 2
+	ld bc, PA_Rxb
+	ld de, old_pa_rxb
+	oz (OS_Nq)
+	jr c, bye_error
+	ld (old_pa_rxb_size), a
+	
+	ld a, 1
+	ld bc, PA_Xon
+	ld de, old_pa_xon
+	oz (OS_Nq)
+	jr c, bye_error
+	
+	ld a, 1
+	ld bc, PA_Par
+	ld de, old_pa_par
+	oz (OS_Nq)
+	jr c, bye_error
+	
 	; use segment 1 for memory allocations
 	ld a, MM_S1
 	ld bc, 0
@@ -353,6 +386,8 @@ defc TOK_MENU        = $83
 	jr nc, opened_pool
 	
 	; quit with error message
+.bye_error
+	oz (GN_Err)
 	oz (OS_Bye)
 	
 .opened_pool
@@ -2415,6 +2450,27 @@ defc TOK_MENU        = $83
 
 	; purge keyboard buffer
 	oz (OS_Pur)
+	
+	; restore original panel settings
+	ld a, (old_pa_txb_size)
+	ld bc, PA_Txb
+	ld hl, old_pa_txb
+	oz (OS_Sp)
+	
+	ld a, (old_pa_rxb_size)
+	ld bc, PA_Rxb
+	ld hl, old_pa_rxb
+	oz (OS_Sp)
+	
+	ld a, 1
+	ld bc, PA_Xon
+	ld hl, old_pa_xon
+	oz (OS_Sp)
+	
+	ld a, 1
+	ld bc, PA_Par
+	ld hl, old_pa_par
+	oz (OS_Sp)
 	
 	; quit popdown with no error
 	xor a
