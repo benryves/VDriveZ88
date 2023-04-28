@@ -104,9 +104,9 @@ include "vdap.def"
 	defb 'H'                            ; key to help section
 	defb inhlpend-inhlpstart
 .inhlpstart
-	defw appl_dor                       ; no topics
+	defw topics_dor
 	defb appl_bank
-	defw appl_dor                       ; no commands
+	defw commands_dor
 	defb appl_bank
 	defw appl_dor                       ; no help
 	defb appl_bank
@@ -120,6 +120,111 @@ include "vdap.def"
 .innamend
 	defb $FF
 .indorend
+
+.topics_dor
+	defb 0                              ; start marker
+.topic_commands
+	defb topic_end - topic_commands     ; length byte
+	defm "Commands", 0                  ; topic name
+	defb topic_end - topic_commands     ; length byte
+.topic_end
+	defb 0                              ; end marker
+
+.commands_dor
+	defb 0                              ; start marker
+
+.cmd_rename
+	defb cmd_rename_end - cmd_rename    ; length byte
+	defb 'R'                            ; command code
+	defm "RE", 0                        ; keyboard sequence
+	defm "Rename", 0                    ; command name
+	defb cmd_rename_end - cmd_rename    ; length byte
+.cmd_rename_end
+
+.cmd_erase
+	defb cmd_erase_end - cmd_erase      ; length byte
+	defb 'E'                            ; command code
+	defm "ER", 0                        ; keyboard sequence
+	defm "Erase", 0                     ; command name
+	defb cmd_erase_end - cmd_erase      ; length byte
+.cmd_erase_end
+
+.cmd_create
+	defb cmd_create_end - cmd_create    ; length byte
+	defb 'C'                            ; command code
+	defm "CD", 0                        ; keyboard sequence
+	defm "Create Directory", 0          ; command name
+	defb cmd_create_end - cmd_create    ; length byte
+.cmd_create_end
+
+.cmd_up_dir
+	defb cmd_up_dir_end - cmd_up_dir    ; length byte
+	defb IN_SUP                         ; command code
+	defm IN_SUP, 0                      ; keyboard sequence
+	defm "Up Directory", 0              ; command name
+	defb CMDF_COLUMN                    ; command attribute
+	defb cmd_up_dir_end - cmd_up_dir    ; length byte
+.cmd_up_dir_end
+
+.cmd_dwn_dir
+	defb cmd_dwn_dir_end - cmd_dwn_dir  ; length byte
+	defb IN_SDWN                        ; command code
+	defm IN_SDWN, 0                     ; keyboard sequence
+	defm "Down Directory", 0            ; command name
+	defb cmd_dwn_dir_end - cmd_dwn_dir  ; length byte
+.cmd_dwn_dir_end
+
+.cmd_cur_rgt
+	defb cmd_cur_rgt_end - cmd_cur_rgt  ; length byte
+	defb IN_RGT                         ; command code
+	defm IN_RGT, 0                      ; keyboard sequence
+	defm "Cursor Right", 0              ; command name
+	defb cmd_cur_rgt_end - cmd_cur_rgt  ; length byte
+.cmd_cur_rgt_end
+
+.cmd_cur_lft
+	defb cmd_cur_lft_end - cmd_cur_lft  ; length byte
+	defb IN_LFT                         ; command code
+	defm IN_LFT, 0                      ; keyboard sequence
+	defm "Cursor Left", 0               ; command name
+	defb cmd_cur_lft_end - cmd_cur_lft  ; length byte
+.cmd_cur_lft_end
+
+.cmd_cur_up
+	defb cmd_cur_up_end - cmd_cur_up    ; length byte
+	defb IN_UP                          ; command code
+	defm IN_UP, 0                       ; keyboard sequence
+	defm "Cursor Up", 0                 ; command name
+	defb cmd_cur_up_end - cmd_cur_up    ; length byte
+.cmd_cur_up_end
+
+.cmd_cur_dwn
+	defb cmd_cur_dwn_end - cmd_cur_dwn  ; length byte
+	defb IN_DWN                         ; command code
+	defm IN_DWN, 0                      ; keyboard sequence
+	defm "Cursor Down", 0               ; command name
+	defb cmd_cur_dwn_end - cmd_cur_dwn  ; length byte
+.cmd_cur_dwn_end
+
+.cmd_send
+	defb cmd_send_end - cmd_send        ; length byte
+	defb 'S'                            ; command code
+	defm "ES", 0                        ; keyboard sequence
+	defm "Send to Drive", 0             ; command name
+	defb CMDF_COLUMN                    ; command attribute
+	defb cmd_send_end - cmd_send        ; length byte
+.cmd_send_end
+
+.cmd_fetch
+	defb cmd_fetch_end - cmd_fetch      ; length byte
+	defb 'F'                            ; command code
+	defm "EF", 0                        ; keyboard sequence
+	defm "Fetch from Drive", 0          ; command name
+	defb cmd_fetch_end - cmd_fetch      ; length byte
+.cmd_fetch_end
+
+	defb 1                              ; end of topic
+	defb 0                              ; end of all topics
 
 ; The main entry point
 
@@ -396,17 +501,8 @@ include "vdap.def"
 	cp CR
 	jp z, dir_enter
 	
-	cp 'S' - '@' ; <>S
-	jp z, send_file
-	
-	cp 'R' - '@' ; <>R
-	jp z, rename_file
-	
 	cp DEL
 	jp z, delete_file
-	
-	cp 'C' - '@' ; <>C
-	jp z, create_dir
 	
 	jr key_loop
 
@@ -429,23 +525,38 @@ include "vdap.def"
 	oz (OS_In)
 	jr c, key_error
 	
-	cp IN_LFT
-	jr z, dir_move_left
+	cp 'R'
+	jp z, rename_file
+	
+	cp 'E'
+	jp z, delete_file
+	
+	cp 'C'
+	jp z, create_dir
+	
+	cp IN_SUP
+	jp z, dir_up_a_level
+	
+	cp IN_SDWN
+	jp z, dir_down_a_level
 	
 	cp IN_RGT
 	jr z, dir_move_right
-	
+
+	cp IN_LFT
+	jr z, dir_move_left
+
 	cp IN_UP
 	jr z, dir_move_up
 	
 	cp IN_DWN
 	jr z, dir_move_down
 	
-	cp IN_SUP
-	jp z, dir_up_a_level
+	cp 'S'
+	jp z, send_file
 	
-	cp IN_SDWN
-	jp z, dir_enter
+	cp 'F'
+	jp z, dir_fetch
 	
 	jr key_loop
 
@@ -694,13 +805,42 @@ include "vdap.def"
 	jp key_loop
 
 
+.dir_down_a_level
+	
+	call dir_enter_begin
+	jp z, key_loop
+	cp 'd'
+	jp nz, key_loop
+	jr dir_enter_dir
+
+.dir_fetch
+	
+	call dir_enter_begin
+	jp z, key_loop
+	cp 'f'
+	jp nz, key_loop
+	jr dir_enter_file
+
 .dir_enter
 	
+	call dir_enter_begin
+	jp z, key_loop
+	
+	
+	cp 'd'
+	jr z, dir_enter_dir
+	
+	cp 'f'
+	jr z, dir_enter_file
+	
+	jp key_loop
+
+.dir_enter_begin
 	; we can't do anything if we don't have any files
 	ld hl, (dir_count)
 	ld a, l
 	or h
-	jp z, key_loop
+	ret z
 	
 	; copy the selected filename from the directory listing
 	ld de, (dir_selected)
@@ -716,13 +856,8 @@ include "vdap.def"
 	; are we acting on a file or a directory?
 	ld a, (filename)
 	
-	cp 'd'
-	jr z, dir_enter_dir
-	
-	cp 'f'
-	jr z, dir_enter_file
-	
-	jp key_loop
+	or a
+	ret
 
 .dir_enter_dir
 	
