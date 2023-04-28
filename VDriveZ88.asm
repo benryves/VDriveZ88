@@ -405,6 +405,9 @@ include "vdap.def"
 	cp DEL
 	jp z, delete_file
 	
+	cp 'C' - '@' ; <>C
+	jp z, create_dir
+	
 	jr key_loop
 
 .key_error
@@ -1952,6 +1955,168 @@ include "vdap.def"
 	; we're not sure what happened here so restart from scratch
 	jp dir_list_start_from_current
 
+.create_dir
+	
+	; we can't do anything if we don't have a disk in the drive
+	ld a, (has_disk)
+	or a
+	jp z, key_loop
+	
+	; start with a blank filename
+	ld a, 'd'
+	ld (filename + 0), a
+	xor a
+	ld (filename + 1), a
+
+.create_dir_show_dialog
+
+	; display the dialog
+	ld hl, window_dialog_begin
+	oz (GN_Sop)
+	
+	ld hl, create_dir_title
+	oz (GN_Sop)
+	
+	ld hl, window_dialog_end
+	oz (GN_Sop)
+	
+.create_dir_prompt_loop_end
+	
+	ld hl, filename + 1
+	call str_len
+
+.create_dir_prompt_loop
+
+	; prompt for the new directory name
+	ld hl, create_dir_prompt
+	oz (GN_Sop)
+	
+	call enable_cursor
+
+	ld a, 1
+	ld b, 21	
+	ld de, filename + 1
+	oz (GN_Sip)
+	
+	call disable_cursor
+	
+	jr nc, create_dir_prompt_ok
+
+.create_dir_prompt_error
+	
+	cp RC_QUIT
+	jp z, appl_exit
+	
+	cp RC_SUSP
+	jp z, create_dir_prompt_loop
+	
+	cp RC_DRAW
+	jp z, create_dir_show_dialog
+	
+	cp RC_ESC
+	jp z, create_dir_exit
+	
+	jp appl_exit
+
+.create_dir_prompt_ok
+	cp ESC
+	ld a, RC_ESC
+	jr z, create_dir_prompt_error
+	
+	; ensure the new name is uppercase
+	ld hl, filename + 1
+	call str_to_upper
+	
+	; is the new name valid?
+	call validate_filename
+	
+	jr nc, create_dir_new_name_ok
+	
+	oz (GN_Err)
+	
+	jr create_dir_prompt_loop_end
+
+.create_dir_new_name_ok
+
+	; does the new name already exist?
+	call check_file_exists
+	
+	; error getting file details
+	ld a, RC_TIME
+	jr c, create_dir_error
+	
+	jr nz, create_dir_not_duplicate
+	
+	; directory already exists.
+	ld a, RC_EXIS
+	oz (GN_Err)
+	
+	jr create_dir_prompt_loop_end
+	
+.create_dir_not_duplicate
+
+	; get the current date and time
+	call get_current_date_time
+
+	; store in the "file created" vcariable in VDAP format
+	ld hl, file_created
+	call date_time_oz_to_vdap
+
+	; send the command to create the directory
+	ld a, VDAP_MKD
+	ld hl, filename + 1
+	ld bc, (file_created + 2) ; date
+	ld de, (file_created + 0) ; time
+	call send_command_string_dword
+	
+	ld a, RC_TIME
+	jr c, create_dir_error_after_create
+	
+	call check_prompt_or_error
+	jr c, create_dir_error_after_create
+	
+	; does the new directory exist?
+	ld hl, filename + 1
+	call check_file_exists
+	
+	ld a, RC_TIME
+	jr c, create_dir_error_after_create
+	
+	ld a, RC_ONF
+	jr nz, create_dir_error_after_create
+	
+	; we're OK!
+	
+	; add the new directory entry
+	call dir_add_filename
+	ld de, (dir_working)
+	ld (dir_selected), de
+	
+	; redraw
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start
+
+.create_dir_error
+	
+	oz (GN_Err)
+	call flush_to_timeout
+
+.create_dir_exit
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start
+
+.create_dir_error_after_create
+
+	oz (GN_Err)
+	call flush_to_timeout
+
+.create_dir_exit_after_create
+	
+	ld hl, window_dialog_close
+	oz (GN_Sop)
+	jp dir_list_start_from_current
 
 .appl_exit
 
@@ -3900,6 +4065,14 @@ include "vdap.def"
 	defm SOH, "3@", 32 + 1, 32 + 5
 	defm "Erase         : "
 	defm SOH, "2C", 254
+	defb 0
+
+.create_dir_title
+	defm "Create Directory", 0
+
+.create_dir_prompt
+	defm SOH, "3@", 32 + 1, 32 + 1
+	defm "Directory name: "
 	defb 0
 
 .dialog_show_size_and_dates
