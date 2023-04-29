@@ -5,7 +5,7 @@
 .front_dor
 	defb 0,0,0           ; link to parent
 	defb 0,0,0           ; no help DOR
-	defw $C000           ; first application DOR
+	defw $E000           ; first application DOR
 	defb $3F             ; in top bank of eprom
 	defb $13             ; ROM front DOR
 	defb 8               ; length

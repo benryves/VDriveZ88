@@ -79,7 +79,7 @@ include "vdap.def"
 ; Application bank and origin
 
 	defc appl_bank = $3F                ; default to top bank loading
-	org $C000
+	org $E000
 
 ; Application DOR
 

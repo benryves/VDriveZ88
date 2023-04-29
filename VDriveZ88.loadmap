@@ -6,5 +6,5 @@ size 16
 ; automatically generate a card ID based on the CRC32 of the images
 generateCardId
 
-VDriveZ88.bin 3f0000                    ; Locate application at 0000 (addressed for $C000)
-romheader.bin 3f3fc0                    ; ROM Application header at top of card, first application DOR at $C000
+VDriveZ88.bin 3f2000                    ; Locate application at 2000 (addressed for $E000)
+romheader.bin 3f3fc0                    ; ROM Application header at top of card, first application DOR at $E000
