@@ -16,7 +16,8 @@ include "vdap.def"
 
 ; General constants
 
-	defc port_timeout = 25
+	defc port_timeout_default = 25 ; 1/4 second
+	defc port_timeout_long = 50 ; 1/2 second
 	defc filename_length = 20
 	
 	defc dir_item_width = 14
@@ -38,6 +39,7 @@ include "vdap.def"
 	defvars ram_vars {
 		screen_handle    ds.w 1          ; screen handle
 		port_handle      ds.w 1          ; serial port handle
+		port_timeout     ds.w 1          ; serial port timeout
 		file_handle      ds.w 1          ; file handle
 		filename         ds.b 32         ; buffer for filenames
 		has_disk         ds.b 1          ; whether the drive has a disk in it or not
@@ -1239,6 +1241,10 @@ defc TOK_MENU        = $83
 	; we'll want to be able to cancel transfers with the escape key
 	ld a, SC_ENA
 	oz (OS_Esc)
+	
+	; long timeouts
+	ld bc, port_timeout_long
+	ld (port_timeout), bc
 
 .copy_file_loop
 	
@@ -1370,6 +1376,10 @@ defc TOK_MENU        = $83
 	; disable escape detection
 	ld a, SC_DIS
 	oz (OS_Esc)
+	
+	; default timeouts
+	ld bc, port_timeout_default
+	ld (port_timeout), bc
 	
 	; flush any remaining data
 	ld ix, (port_handle)
@@ -1787,6 +1797,10 @@ defc TOK_MENU        = $83
 	ld a, SC_ENA
 	oz (OS_Esc)
 	
+	; long timeouts
+	ld bc, port_timeout_long
+	ld (port_timeout), bc
+	
 	; we're about to be very busy...
 	call busy_start
 	
@@ -1862,6 +1876,10 @@ defc TOK_MENU        = $83
 	; disable escape detection
 	ld a, SC_DIS
 	oz (OS_Esc)
+	
+	; default timeouts
+	ld bc, port_timeout_default
+	ld (port_timeout), bc
 	
 	ld ix, (port_handle)
 	ld hl, filename + 1
@@ -2574,7 +2592,8 @@ defc TOK_MENU        = $83
 	
 	; set the default timeout
 	ld l, SI_TMO
-	ld bc, port_timeout
+	ld bc, port_timeout_default
+	ld (port_timeout), bc
 	oz (OS_Si)
 	
 	ret
@@ -3086,13 +3105,13 @@ defc TOK_MENU        = $83
 	ret
 
 .send_byte
-	ld bc, port_timeout
+	ld bc, (port_timeout)
 .send_byte_timeout
 	oz (OS_Pbt)
 	ret
 
 .get_byte
-	ld bc, port_timeout
+	ld bc, (port_timeout)
 .get_byte_timeout
 	oz (OS_Gbt)
 	ret
