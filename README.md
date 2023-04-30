@@ -12,6 +12,38 @@ Such a module can be connected to the Cambridge Z88's RS-232 serial port using a
 The VDriveZ88 popdown application can then be installed and run on the Z88 to provide a way to fetch the files
 from the USB flash drive to the Z88, or to send files from the Z88 to the USB flash drive.
 
+## Drive pinout
+
+You will need to use a MAX232 or similar RS-232 driver to convert the voltage levels used by the VDrive to
+the RS-232 standard used by the Z88.
+
+There are also two sensible ways you could connect wire up the DE-9 connector:
+
+1. Use the Z88 pinout and a straight-through DE-9 serial cable.
+2. Use the PC pinout and a special cable that remaps to the Z88 pinout.
+
+I prefer the second option as it will allow me to use the VDrive with other computers,
+and once the adaptor cable has been made it can be used to connect other PC-standard serial devices to the Z88.
+
+Both pinouts are listed in the table below along with an example pinout for the MAX232.
+
+|VDrive|MAX232            |PC DE-9      |Z88 DE-9|
+|------|------------------|-------------|--------|
+|1 GND |15 GND            |5 GND        |7 GND   |
+|2 RTS#|11 T1IN → 14 T1OUT|8 CTS        |5 CTS   |
+|3 5V0 |16 VCC            |1 DCD, 6 DSR |8 DCD   |
+|4 RXD |12 R1OUT ← 13 R1IN|3 TXD        |2 TXD   |
+|5 TXD |10 T2IN → 7 T2OUT |2 RXD        |3 RXD   |
+|6 CTS#| 9 R2OUT ← 8 R2IN |7 RTS        |4 RTS   |
+|7 NC  |                  |             |        |
+|8 RI# |15 GND            |5 GND        |7 GND   |
+
+Note that the VDrive's `RI#` pin needs to be connected to ground.
+
+The Z88 requires its `DCD` line to be driven high before it will receive any data.
+I use a series diode and resistor between the 5V supply and the `DCD` output to provide some protection
+against a miswired cable putting a large voltage on the VDrive's 5V input.
+
 ## Application overview
 
 The application has been designed to work in a similar fashion to the Z88's native Filer.
