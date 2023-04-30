@@ -2490,6 +2490,10 @@ defc TOK_MENU        = $83
 	ld hl, old_pa_par
 	oz (OS_Sp)
 	
+	; soft-reset the serial port
+	ld l, SI_SFT
+	oz (OS_Si)
+	
 	; quit popdown with no error
 	xor a
 	oz (OS_Bye)
