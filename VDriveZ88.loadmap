@@ -1,5 +1,5 @@
 ; generate a 16K Eprom image
-outputfile VDriveZ88.epr
+outputfile VDrive.epr
 save16k
 size 16
 

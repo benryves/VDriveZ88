@@ -3,3 +3,5 @@
 *.epr
 *.map
 *.cfg
+*.ap?
+VDrive.zip
