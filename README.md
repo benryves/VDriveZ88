@@ -12,12 +12,20 @@ Such a module can be connected to the Cambridge Z88's RS-232 serial port using a
 The VDriveZ88 popdown application can then be installed and run on the Z88 to provide a way to fetch the files
 from the USB flash drive to the Z88, or to send files from the Z88 to the USB flash drive.
 
+## Installation
+
+Three sets of files are provided for different installation methods:
+
+* The _RomCombiner_ directory contains `VDrive.63` which can be programmed to an EPROM cartridge using the [RomCombiner](https://cambridgez88.jira.com/wiki/spaces/ZRC/overview) BASIC program on the Z88.
+* The _Installer_ directory contains `VDrive.app` and `VDrive.ap0` which can be installed in RAM ([natively in later versions of OZ](https://cambridgez88.jira.com/wiki/spaces/UG/pages/68780391/Appendix+J+-+Installing+applications+in+RAM) or by using the Installer [application](https://worldofspectrum.org/z88forever/rom-forever.html#installer) or [BASIC program](https://worldofspectrum.org/z88forever/basic-basinstaller.html) on older versions of OZ).
+* The _Emulator_ directory contains `VDrive.epr` which is only really of interest if you have an emulator that emulates the serial port.
+
 ## Drive pinout
 
 You will need to use a MAX232 or similar RS-232 driver to convert the voltage levels used by the VDrive to
 the RS-232 standard used by the Z88.
 
-There are also two sensible ways you could connect wire up the DE-9 connector:
+There are also two sensible ways you could wire up the DE-9 connector:
 
 1. Use the Z88 pinout and a straight-through DE-9 serial cable.
 2. Use the PC pinout and a special cable that remaps to the Z88 pinout.
