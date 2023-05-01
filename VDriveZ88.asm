@@ -645,16 +645,74 @@ defc TOK_MENU        = $83
 	cp DEL
 	jp z, delete_file
 	
-	jr key_loop
+	; if it's a filename character, can we jump to the next file starting with its initial?
+	call char_to_upper
+	call validate_filename_char
+	jr c, key_loop
+	
+	; jump to next item starting with the initial just pressed
+	ld c, a
+	
+	ld hl, (dir_count)
+	ld a, h
+	or l
+	jr z, key_loop
+	
+	; start from the current file
+	push bc
+	ld de, (dir_selected)
+	ld (dir_working), de
+	call dir_set_index
+	pop bc
+	
+.next_lettered_file_loop
+	; advance to the next file
+	push bc
+	ld de, (dir_working)
+	inc de
+	push de
+	call dir_next
+	pop de
+	jr nz, next_lettered_file_nowrap
+	call dir_reset_index
+	ld de, 0
+.next_lettered_file_nowrap
+	ld (dir_working), de
+	pop bc
+	
+	; does the file start with our desired character?
+	ld de, 4 + 1
+	add hl, de
+	ld a, (hl)
+	cp c
+	jr z, next_lettered_file_found
+	
+	; have we looped around?
+	ld hl, (dir_working)
+	ld de, (dir_selected)
+	or a
+	sbc hl, de
+	jr nz, next_lettered_file_loop
+
+.next_lettered_file_found
+	; how far have we moved?
+	ld hl, (dir_working)
+	ld de, (dir_selected)
+	or a
+	sbc hl, de
+	jr z, key_loop
+	ex de, hl
+	
+	jp dir_move_16
 
 .key_error
 	
 	; time-outs are OK
 	cp RC_TIME
-	jr z, key_loop
+	jp z, key_loop
 	
 	cp RC_SUSP
-	jr z, key_loop
+	jp z, key_loop
 	
 	cp RC_DRAW
 	jp z, dir_list_start
@@ -699,7 +757,7 @@ defc TOK_MENU        = $83
 	cp 'F'
 	jp z, dir_fetch
 	
-	jr key_loop
+	jp key_loop
 
 .dir_list_print_file
 	
@@ -796,6 +854,8 @@ defc TOK_MENU        = $83
 	add a, a
 	sbc a, a
 	ld d, a
+
+.dir_move_16
 	
 	; can't move within the directory listing if there aren't any files
 	ld hl, (dir_count)
@@ -3071,43 +3131,6 @@ defc TOK_MENU        = $83
 	defm "NU", RC_ONF  ; NU = No Upgrade
 .check_prompt_error_codes_end
 
-.print_hex_nybble
-	and $0F
-	cp 10
-	jr c, print_hex_nybble_09
-
-.print_hex_nybble_af
-	add a, 'A'-10
-	oz (OS_Out)
-	ret
-
-.print_hex_nybble_09
-	add a, '0'
-	oz (OS_Out)
-	ret
-	
-.print_hex_byte
-	push af	
-	srl a
-	srl a
-	srl a
-	srl a
-	call print_hex_nybble
-	pop af
-	push af
-	call print_hex_nybble
-	pop af
-	ret
-
-.print_hex_word
-	push af
-	ld a, h
-	call print_hex_byte
-	ld a, l
-	call print_hex_byte
-	pop af
-	ret
-
 .send_byte
 	ld bc, (port_timeout)
 .send_byte_timeout
@@ -4475,19 +4498,18 @@ defc TOK_MENU        = $83
 	or a
 	ret z
 	
-	cp 'a'
-	jr c, str_to_upper_not_lowercase
-	
-	cp 'z' + 1
-	jr nc, str_to_upper_not_lowercase
-	
-	add a, 'A' - 'a'
-	
+	call char_to_upper
 	ld (hl), a
-
-.str_to_upper_not_lowercase
 	inc hl
 	jr str_to_upper_loop
+
+.char_to_upper
+	cp 'a'
+	ret c
+	cp 'z' + 1
+	ret nc
+	add a, 'A' - 'a'
+	ret
 
 
 ; 5.3.1 Valid Characters
