@@ -43,17 +43,17 @@ if (Test-Path "package") {
 }
 New-Item -Path package -Type directory | Out-Null
 New-Item -Path package/Installer -Type directory | Out-Null
-New-Item -Path package/ROMCombiner -Type directory | Out-Null
+New-Item -Path package/RomCombiner -Type directory | Out-Null
 New-Item -Path package/Emulator -Type directory | Out-Null
 
 # Copy files over
 Get-ChildItem -Filter VDrive.ap? | Copy-Item -Destination package/Installer
-Get-ChildItem -Filter VDrive.6? | Copy-Item -Destination package/ROMCombiner
+Get-ChildItem -Filter VDrive.6? | Copy-Item -Destination package/RomCombiner
 Get-ChildItem -Filter VDrive.epr | Copy-Item -Destination package/Emulator
 
 # Compress the zip archive
 Compress-Archive -Path package/Installer -DestinationPath VDrive.zip -Force
-Compress-Archive -Path package/ROMCombiner -DestinationPath VDrive.zip -Update
+Compress-Archive -Path package/RomCombiner -DestinationPath VDrive.zip -Update
 Compress-Archive -Path package/Emulator -DestinationPath VDrive.zip -Update
 
 # Remove the temporary packaging path
