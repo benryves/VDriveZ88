@@ -935,6 +935,7 @@ defc TOK_MENU        = $83
 	add hl, de
 	
 	ex de, hl
+	ld (dir_working), de
 	call dir_set_index
 	
 	ld a, dir_left
@@ -967,7 +968,8 @@ defc TOK_MENU        = $83
 	oz (OS_Out)
 	
 	; redraw the top line of files
-	ld de, (dir_offset)	
+	ld de, (dir_offset)
+	ld (dir_working), de
 	call dir_set_index
 	
 	ld a, dir_left
@@ -989,11 +991,11 @@ defc TOK_MENU        = $83
 	call dir_next
 	pop bc
 	
-	jr z, dir_move_off_edge_loop
+	jp z, dir_move_off_edge_loop
 	
 	djnz dir_move_off_top_reprint_loop
 	
-	jr dir_move_off_edge_loop
+	jp dir_move_off_edge_loop
 	
 .dir_move_not_off_bottom
 
