@@ -46,20 +46,32 @@ Both pinouts are listed in the table below along with an example pinout for the 
 |7 NC  |                  |             |        |
 |8 RI# |15 GND            |5 GND        |7 GND   |
 
-Note that the VDrive's `RI#` pin needs to be connected to ground.
+Note that the VDrive's `RI#` pin needs to be connected to ground and
+the Z88 requires its `DCD` line to be driven high before it will receive any data.
 
-The Z88 requires its `DCD` line to be driven high before it will receive any data.
-I use a series diode and resistor between the 5V supply and the `DCD` output to provide some protection
-against a miswired cable putting a large voltage on the VDrive's 5V input.
+![](images/circuit.png)
+
+The above circuit shows one possible way to wire up the VDrive and MAX232.
+The pinout for the RS-232 port at the bottom is given for a PC DE-9 connector;
+to use this with a Z88 you will need a cable wired with a "PC" end and "Z88" end,
+swapping pin numbers according to the table above
+(GND pin 5 on the PC end to GND pin 7 on the Z88 end,
+CTS pin 8 on the PC end to CTS pin 5 on the Z88 end etc).
 
 ## Application overview
 
 The application has been designed to work in a similar fashion to the Z88's native Filer.
 
+![](images/scr-dir-listing.png)  
+*VDrive's directory listing window*
+
 Once you have started the application and it has connected to the drive it will show a directory listing.
 
 You can move around the directory listing with the cursor keys and interact with the file or folder that
 is currently highlighted via the commands shown when you press the `MENU` key.
+
+![](images/scr-commands.png)  
+*List of commands shown when you press the `MENU` key*
 
 Each command generally uses the same keyboard sequence as the equivalent command in the Z88's Filer,
 though only a single file or directory is handled at a time so you do not need to mark the file with `ENTER` first.
@@ -67,9 +79,15 @@ though only a single file or directory is handled at a time so you do not need t
 Instead, the `ENTER` key will now prompt to fetch the file directly (`◇EF`) or go down into the directory (`SHIFT⇩`)
 depending on whether the highlighted item is a file or directory.
 
+![](images/scr-help-fetch.png)  
+*Pressing the `HELP` key will show information about the highlighted command*
+
 Certain commands will cause a dialog box to appear with some more information about the file or directory
 along with a prompt specific to the particular command you have selected (for example, if renaming a file it will
 prompt you for the new file name, or if deleting a file it will ask for confirmation).
+
+![](images/scr-fetch-from-drive.png)  
+*Status dialog shown when fetching a file from the drive*
 
 When being prompted for confirmation you can switch between yes/no by pressing `Y` or `N` or by pressing `◇J`
 to toggle the option. `ENTER` will then confirm, or `ESC` will cancel.
