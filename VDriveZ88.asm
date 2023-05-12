@@ -1515,22 +1515,31 @@ defc TOK_MENU        = $83
 	ld hl, (path + 2)
 	oz (OS_Mpb)
 	
+	; is the current path empty?
 	ld a, (hl)
+	or a
+	jp z, dir_list_start
+	
+	; store the length of the string
+	ld b, 0
 
 .dir_up_find_path_end
 	ld a, (hl)
 	or a
-	jr z, dir_up_found_path_end_empty
-	cp '/'
 	jr z, dir_up_found_path_end
 	inc hl
-	inc c
+	inc b
 	jr dir_up_find_path_end
 
-.dir_up_found_path_end_empty
-	ld hl, (path + 2)
 .dir_up_found_path_end
+	dec hl
+.dir_up_erase_path_end_loop
+	ld a, (hl)
 	ld (hl), 0
+	cp '/'
+	jp z, dir_list_start
+	dec hl
+	djnz dir_up_erase_path_end_loop
 	jp dir_list_start
 
 .send_file
