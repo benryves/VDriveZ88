@@ -2,6 +2,8 @@
 
 A popdown application for the Cambridge Z88 to provide access to files on a USB drive via a Vinculum VDrive/VMusic module
 
+![Photo of the VDrive plugged into a Z88](images/z88-and-vdrive.jpg)
+
 ## Introduction
 
 FTDI offers a range of USB host modules such as the VDrive and VMusic which, when running Vinculum's firmware,
@@ -49,7 +51,7 @@ Both pinouts are listed in the table below along with an example pinout for the 
 Note that the VDrive's `RI#` pin needs to be connected to ground and
 the Z88 requires its `DCD` line to be driven high before it will receive any data.
 
-![](images/circuit.png)
+![Circuit diagram for a MAX-232 interface between the VDrive and an RS-232 serial port](images/circuit.png)
 
 The above circuit shows one possible way to wire up the VDrive and MAX232.
 The pinout for the RS-232 port at the bottom is given for a PC DE-9 connector;
@@ -62,7 +64,7 @@ CTS pin 8 on the PC end to CTS pin 5 on the Z88 end etc).
 
 The application has been designed to work in a similar fashion to the Z88's native Filer.
 
-![](images/scr-dir-listing.png)  
+![Z88 screenshot of a directory listing window](images/scr-dir-listing.png)  
 *VDrive's directory listing window*
 
 Once you have started the application and it has connected to the drive it will show a directory listing.
@@ -70,7 +72,7 @@ Once you have started the application and it has connected to the drive it will 
 You can move around the directory listing with the cursor keys and interact with the file or folder that
 is currently highlighted via the commands shown when you press the `MENU` key.
 
-![](images/scr-commands.png)  
+![Z88 screenshot of the list of commands](images/scr-commands.png)  
 *List of commands shown when you press the `MENU` key*
 
 Each command generally uses the same keyboard sequence as the equivalent command in the Z88's Filer,
@@ -79,14 +81,14 @@ though only a single file or directory is handled at a time so you do not need t
 Instead, the `ENTER` key will now prompt to fetch the file directly (`◇EF`) or go down into the directory (`SHIFT⇩`)
 depending on whether the highlighted item is a file or directory.
 
-![](images/scr-help-fetch.png)  
+![Z88 screenshot of a help screen for the Fetch command](images/scr-help-fetch.png)  
 *Pressing the `HELP` key will show information about the highlighted command*
 
 Certain commands will cause a dialog box to appear with some more information about the file or directory
 along with a prompt specific to the particular command you have selected (for example, if renaming a file it will
 prompt you for the new file name, or if deleting a file it will ask for confirmation).
 
-![](images/scr-fetch-from-drive.png)  
+![Z88 screenshot of a dialog shown when fetching a file from the drive](images/scr-fetch-from-drive.png)  
 *Status dialog shown when fetching a file from the drive*
 
 When being prompted for confirmation you can switch between yes/no by pressing `Y` or `N` or by pressing `◇J`
